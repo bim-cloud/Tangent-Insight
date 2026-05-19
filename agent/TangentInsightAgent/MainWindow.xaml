@@ -1,0 +1,42 @@
+<Window x:Class="TangentInsightAgent.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Tangent Insight Agent" Height="320" Width="440"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanMinimize" Background="{StaticResource Bg}"
+        ShowInTaskbar="True">
+  <Grid Margin="22">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <StackPanel Grid.Row="0" Orientation="Horizontal">
+      <Ellipse Width="12" Height="12" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
+      <TextBlock Text="Tangent Insight Agent" Foreground="{StaticResource Fg}"
+                 FontSize="18" FontWeight="SemiBold" Margin="10,0,0,0"/>
+    </StackPanel>
+
+    <Border Grid.Row="1" Background="{StaticResource Card}" CornerRadius="10"
+            Padding="16" Margin="0,16,0,0">
+      <StackPanel>
+        <TextBlock x:Name="StatusText" Text="Starting…"
+                   Foreground="{StaticResource Fg}" FontSize="15" FontWeight="SemiBold"/>
+        <TextBlock x:Name="QueueText" Text="Queue: 0 pending"
+                   Foreground="{StaticResource Muted}" FontSize="12" Margin="0,6,0,0"/>
+      </StackPanel>
+    </Border>
+
+    <StackPanel Grid.Row="2" Margin="0,16,0,0">
+      <TextBlock x:Name="MachineText" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2"/>
+      <TextBlock x:Name="EndpointText" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2"/>
+      <TextBlock x:Name="HintText" Foreground="{StaticResource Muted}" FontSize="12"
+                 TextWrapping="Wrap" Margin="0,8,0,0"/>
+    </StackPanel>
+
+    <TextBlock Grid.Row="3" Foreground="{StaticResource Muted}" FontSize="11"
+               Text="Closing this window keeps the agent running in the tray."/>
+  </Grid>
+</Window>

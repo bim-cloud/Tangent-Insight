@@ -1,0 +1,14 @@
+{
+  "name": "tangent-insight",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tangent Insight — BIM Intelligence Platform. Static React (in-browser Babel) dashboard for Revit/Autodesk/Teams monitoring, backed by Supabase and fed by the Tangent Insight Agent.",
+  "scripts": {
+    "dev": "npx --yes serve@14 . -l 5173",
+    "preview": "npx --yes serve@14 . -l 5173"
+  },
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18"
+  }
+}

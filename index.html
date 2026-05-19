@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-sidebar="full" data-density="comfortable" data-accent="cyan">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1440, initial-scale=1" />
+  <title>Tangent Insight · BIM Intelligence Platform</title>
+
+  <link rel="stylesheet" href="app/styles.css" />
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js"
+          integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
+          integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+          integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+          crossorigin="anonymous"></script>
+
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Data + primitives load FIRST (vanilla globals, no JSX) -->
+  <script src="app/data.js"></script>
+
+  <!-- OPTIONAL live data (off by default). Uncomment + configure
+       app/supabase-client.js, then add ?live=1 to the URL. Keeping this
+       commented means the dashboard runs on mock data (app/data.js). -->
+  <!-- <script src="app/supabase-client.js"></script> -->
+
+  <!-- JSX components — order matters: primitives -> icons (overrides) -> brand -> shell -> screens -> main -->
+  <script type="text/babel" src="app/primitives.jsx"></script>
+  <script type="text/babel" src="app/icons.jsx"></script>
+  <script type="text/babel" src="app/brand.jsx"></script>
+  <script type="text/babel" src="app/shell.jsx"></script>
+  <script type="text/babel" src="app/tweaks-panel.jsx"></script>
+  <script type="text/babel" src="app/screens/dashboard.jsx"></script>
+  <script type="text/babel" src="app/screens/revit.jsx"></script>
+  <script type="text/babel" src="app/screens/employees.jsx"></script>
+  <script type="text/babel" src="app/screens/live.jsx"></script>
+  <script type="text/babel" src="app/screens/teams.jsx"></script>
+  <script type="text/babel" src="app/screens/history.jsx"></script>
+  <script type="text/babel" src="app/screens/useranalytics.jsx"></script>
+  <script type="text/babel" src="app/screens/reports.jsx"></script>
+  <script type="text/babel" src="app/screens/secondary.jsx"></script>
+  <script type="text/babel" src="app/main.jsx"></script>
+</body>
+</html>
