@@ -21,13 +21,10 @@
 <body>
   <div id="root"></div>
 
-  <!-- Data + primitives load FIRST (vanilla globals, no JSX) -->
+  <!-- data.js provides the TI_DATA shape; supabase-client.js then replaces
+       every surface with live Supabase data. Add ?mock=1 to force mock. -->
   <script src="app/data.js"></script>
-
-  <!-- OPTIONAL live data (off by default). Uncomment + configure
-       app/supabase-client.js, then add ?live=1 to the URL. Keeping this
-       commented means the dashboard runs on mock data (app/data.js). -->
-  <!-- <script src="app/supabase-client.js"></script> -->
+  <script src="app/supabase-client.js"></script>
 
   <!-- JSX components — order matters: primitives -> icons (overrides) -> brand -> shell -> screens -> main -->
   <script type="text/babel" src="app/primitives.jsx"></script>
