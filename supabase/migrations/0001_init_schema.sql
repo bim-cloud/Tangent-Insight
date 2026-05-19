@@ -42,11 +42,14 @@ create table if not exists public.people (
   ot           numeric(6,2) default 0,
   utilization  integer default 0,
   machine      text,                         -- e.g. TLA-DXB-014
+  username     text,                          -- AD account: DOMAIN\sam or sam (unique per human)
   email        text,
   updated_at   timestamptz default now()
 );
-create index if not exists people_status_idx  on public.people (status);
-create index if not exists people_machine_idx on public.people (machine);
+create index if not exists people_status_idx   on public.people (status);
+create index if not exists people_machine_idx  on public.people (machine);
+create index if not exists people_username_idx on public.people (lower(username));
+create index if not exists people_email_idx     on public.people (lower(email));
 
 -- ---------------------------------------------------------------------------
 -- Projects

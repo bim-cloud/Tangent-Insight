@@ -7,8 +7,7 @@ namespace TangentInsightAgent.Services;
 public static class Log
 {
     private static readonly object _gate = new();
-    private static readonly string _dir =
-        Path.Combine(AppContext.BaseDirectory, "logs");
+    private static string _dir => AppPaths.LogDir;
     private static string File =>
         Path.Combine(_dir, $"agent-{DateTime.Now:yyyyMMdd}.log");
 

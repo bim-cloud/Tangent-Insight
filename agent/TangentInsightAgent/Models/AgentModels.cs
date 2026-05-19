@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using TangentInsightAgent.Services;
 
 namespace TangentInsightAgent.Models;
 
@@ -31,7 +32,7 @@ public sealed class AgentSample
     [JsonPropertyName("host_name")]        public string  HostName       { get; set; } = Environment.MachineName;
     [JsonPropertyName("person_id")]        public string? PersonId       { get; set; }
     [JsonPropertyName("autodesk_user")]    public string? AutodeskUser   { get; set; }
-    [JsonPropertyName("windows_user")]     public string  WindowsUser    { get; set; } = Environment.UserName;
+    [JsonPropertyName("windows_user")]     public string  WindowsUser    { get; set; } = IdentityHelper.WindowsAccount();
     [JsonPropertyName("sampled_at")]       public string  SampledAt      { get; set; } = DateTime.UtcNow.ToString("o");
     [JsonPropertyName("foreground_app")]   public string? ForegroundApp  { get; set; }
     [JsonPropertyName("window_title")]     public string? WindowTitle    { get; set; }

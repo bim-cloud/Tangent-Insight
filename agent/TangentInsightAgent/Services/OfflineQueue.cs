@@ -12,8 +12,7 @@ namespace TangentInsightAgent.Services;
 /// </summary>
 public sealed class OfflineQueue
 {
-    private readonly string _dir =
-        Path.Combine(AppContext.BaseDirectory, "queue");
+    private readonly string _dir = AppPaths.QueueDir;
     private readonly ConcurrentQueue<string> _files = new();
 
     public int Count => _files.Count;

@@ -67,7 +67,50 @@ declare
   v_clock       text := to_char(new.sampled_at at time zone 'Asia/Dubai','HH24:MI');
   v_idle_min    int  := coalesce((new.idle_ms / 60000)::int, 0);
 begin
-  -- 1. machine heartbeat
+  -- 0. Resolve WHO this is, in priority order. The agent needs NO per-machine
+  --    identity config — identity comes from signals it already collects.
+  --
+  --    Order matters for YOUR environment: Autodesk IDs are shared between
+  --    people, so the Autodesk email is NOT a safe key. The Windows AD account
+  --    is unique per human (managed profiles), so it is the primary key. The
+  --    Autodesk email is kept only as a last-resort hint.
+  --
+  --      a) explicit person_id in the sample (manual override)
+  --      b) Windows account  -> people.username   (PRIMARY: unique per human;
+  --         tolerant of "DOMAIN\sam" vs bare "sam" on either side)
+  --      c) machine tag      -> people.machine    (1 human : 1 PC fallback)
+  --      d) Autodesk email   -> people.email      (LAST RESORT — unreliable
+  --         when an Autodesk ID is shared across people)
+  if v_person is null and new.windows_user is not null then
+    select id into v_person from public.people
+     where username is not null
+       and (
+            lower(username) = lower(new.windows_user)
+         or lower(split_part(username,'\',2))     = lower(split_part(new.windows_user,'\',2))
+         or lower(username)                        = lower(split_part(new.windows_user,'\',2))
+         or lower(split_part(username,'\',2))      = lower(new.windows_user)
+       )
+     limit 1;
+  end if;
+  if v_person is null and new.machine_id is not null then
+    select id into v_person from public.people
+      where lower(machine) = lower(new.machine_id) limit 1;
+  end if;
+  if v_person is null and new.autodesk_user is not null then
+    -- only auto-map by email when EXACTLY ONE person owns that email,
+    -- so a shared Autodesk ID never silently mis-attributes activity.
+    select id into v_person from public.people
+      where lower(email) = lower(new.autodesk_user)
+      group by id
+      having count(*) = 1
+      limit 1;
+    if (select count(*) from public.people
+          where lower(email) = lower(new.autodesk_user)) > 1 then
+      v_person := null;   -- ambiguous shared ID: do not guess
+    end if;
+  end if;
+
+  -- 1. machine heartbeat (records the resolved person so it is visible/cached)
   insert into public.agent_machines
     (machine_id, host_name, person_id, autodesk_user, online, last_seen)
   values
@@ -80,7 +123,7 @@ begin
     last_seen     = excluded.last_seen;
 
   if v_person is null then
-    return new;  -- unmapped machine: keep the raw sample, nothing to fan out
+    return new;  -- genuinely unknown user: keep the raw sample, no fan-out
   end if;
 
   -- 2. derive status

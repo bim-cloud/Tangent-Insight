@@ -57,7 +57,7 @@ public partial class App : Application
             try
             {
                 System.Diagnostics.Process.Start("explorer.exe",
-                    System.IO.Path.Combine(AppContext.BaseDirectory, "logs"));
+                    TangentInsightAgent.Services.AppPaths.LogDir);
             }
             catch { /* ignore */ }
         });
