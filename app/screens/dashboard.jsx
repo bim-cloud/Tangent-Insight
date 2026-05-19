@@ -2,6 +2,51 @@
 
 window.DashboardScreen = function DashboardScreen({ activity, setRoute, setSelectedProject, setSelectedEmployee, kpis, dashLayout }) {
   const D = window.TI_DATA;
+  const [wf, setWf] = React.useState("hours");
+
+  // ---- everything below is computed from live data ----
+  const people  = D.people || [];
+  const total   = people.length;
+  const online  = people.filter(p => p.status === "online").length;
+  const meeting = people.filter(p => p.status === "meeting").length;
+  const idle    = people.filter(p => p.status === "idle").length;
+  const offline = people.filter(p => p.status === "offline").length;
+  const liveRevit = people.filter(p => p.status !== "offline" &&
+                      p.project && p.project !== "—" && p.project !== "Multi").length;
+
+  const deptMap = {};
+  people.forEach(p => {
+    const d = p.dept || "Unassigned";
+    deptMap[d] = deptMap[d] || { name: d, total: 0, online: 0, hours: 0, focus: 0 };
+    deptMap[d].total++;
+    if (p.status === "online" || p.status === "meeting") deptMap[d].online++;
+    deptMap[d].hours += p.hours;
+    deptMap[d].focus += p.focusMin / 60;
+  });
+  const depts = Object.keys(deptMap).map(k => deptMap[k])
+                  .sort((a, b) => b.total - a.total).slice(0, 8);
+  const barData = depts.map(d => wf === "hours"
+    ? { name: d.name, a: Math.round(d.hours * 10) / 10, b: Math.round(d.focus * 10) / 10 }
+    : { name: d.name, a: d.total, b: d.online });
+
+  const sumF = people.reduce((a, p) => a + p.focusMin, 0);
+  const sumI = people.reduce((a, p) => a + p.idleMin, 0);
+  const denom = sumF + sumI;
+  const focusPct = denom ? Math.round(sumF / denom * 100) : 0;
+  const idlePct  = denom ? Math.round(sumI / denom * 100) : 0;
+  const meetPct  = total ? Math.round(meeting / total * 100) : 0;
+  const prodIndex = focusPct;
+
+  const hm = D.heatmap ? D.heatmap() : { days: [], hours: [], data: [] };
+  let peak = { v: -1, d: 0, h: 0 };
+  (hm.data || []).forEach(c => { if (c.v > peak.v) peak = c; });
+  const peakDay  = peak.v > 0 ? hm.days[peak.d] : "—";
+  const peakHour = peak.v > 0 ? hm.hours[peak.h] + ":00" : "—";
+  const events24 = (D.initialActivity || []).length;
+  const unread   = (D.notifications || []).filter(n => !n.read).length;
+  const subline  = online === 0
+    ? "No agents reporting yet — staff appear here as they come online"
+    : meeting + " in Teams · " + idle + " idle · " + D.projects.length + " active documents";
 
   return (
     <PageShell>
@@ -14,10 +59,10 @@ window.DashboardScreen = function DashboardScreen({ activity, setRoute, setSelec
               <Icon name="sun" size={12} /> Good morning · Tangent Dubai
             </div>
             <h1 className="h1" style={{ marginTop: 6 }}>
-              <span className="gradient-text">28 of 42</span> people online · <span className="tabular">8</span> live Revit sessions
+              <span className="gradient-text">{online} of {total}</span> people online · <span className="tabular">{liveRevit}</span> live Revit sessions
             </h1>
             <div className="muted" style={{ fontSize: 12.5, marginTop: 6 }}>
-              NEOM01 sync just landed · Jeddah Corniche needs attention · 2 Teams calls in progress
+              {subline}
             </div>
           </div>
           <div className="center gap-2">
@@ -46,54 +91,45 @@ window.DashboardScreen = function DashboardScreen({ activity, setRoute, setSelec
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
           <CardTitle
             title="Workforce activity · live"
-            subtitle="Active hours allocated by department over the last 24h"
+            subtitle={wf === "hours" ? "Work hours vs focus hours by department" : "Headcount vs online by department"}
             icon="activity"
             live
-            right={<div className="seg"><button className="on">Hours</button><button>Headcount</button></div>}
+            right={<div className="seg">
+              <button className={wf === "hours" ? "on" : ""} onClick={() => setWf("hours")}>Hours</button>
+              <button className={wf === "headcount" ? "on" : ""} onClick={() => setWf("headcount")}>Headcount</button>
+            </div>}
           />
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "center" }}>
-            <BarChart
-              height={210}
-              data={[
-                { name: "BIM",          a: 38, b: 36 },
-                { name: "Landscape",    a: 44, b: 41 },
-                { name: "Architecture", a: 32, b: 28 },
-                { name: "Detailing",    a: 40, b: 44 },
-                { name: "PM",           a: 14, b: 12 },
-                { name: "Civil",        a: 22, b: 18 },
-              ]}
-            />
+            <BarChart height={210} data={barData.length ? barData : [{ name: "—", a: 0, b: 0 }]} />
             <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 150 }}>
-              <Stat icon="user-check" label="Online now" value="28" delta="+4" tone="success" />
-              <Stat icon="user-x"     label="Offline"     value="14" delta="-2" tone="muted"   />
-              <Stat icon="coffee"     label="On break"    value="3"  delta="0"  tone="warning" />
-              <Stat icon="video"      label="In meetings" value="9"  delta="+2" tone="info"    />
+              <Stat icon="user-check" label="Online now"  value={online}  tone="success" />
+              <Stat icon="user-x"     label="Offline"     value={offline} tone="muted"   />
+              <Stat icon="moon"       label="Idle"        value={idle}    tone="warning" />
+              <Stat icon="video"      label="In meetings" value={meeting} tone="info"    />
             </div>
           </div>
         </div>
 
         {/* Project status donut */}
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="Project health" subtitle="By stage · 8 active" icon="pie-chart" />
+          <CardTitle title="Team status" subtitle={"Live · " + total + " staff tracked"} icon="pie-chart" />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             <Donut
               size={160} thickness={22}
-              centerLabel="8" label="ACTIVE"
+              centerLabel={String(total)} label="STAFF"
               data={[
-                { value: 1, color: "#A78BFA" },
-                { value: 2, color: "#22D3EE" },
-                { value: 3, color: "rgb(var(--accent))" },
-                { value: 1, color: "#10B981" },
-                { value: 1, color: "#64748B" },
+                { value: online,  color: "rgb(var(--success))" },
+                { value: meeting, color: "#A78BFA" },
+                { value: idle,    color: "rgb(var(--warning))" },
+                { value: offline, color: "#64748B" },
               ]}
             />
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {[
-                { c: "#A78BFA", l: "Concept",          v: 1, pct: 12 },
-                { c: "#22D3EE", l: "Schematic",        v: 2, pct: 25 },
-                { c: "rgb(var(--accent))", l: "Detailed",    v: 3, pct: 38 },
-                { c: "#10B981", l: "Construction Doc", v: 1, pct: 12 },
-                { c: "#64748B", l: "As-Built",         v: 1, pct: 13 },
+                { c: "rgb(var(--success))", l: "Online",     v: online },
+                { c: "#A78BFA",             l: "In meeting", v: meeting },
+                { c: "rgb(var(--warning))", l: "Idle",       v: idle },
+                { c: "#64748B",             l: "Offline",    v: offline },
               ].map(r => (
                 <div key={r.l} className="center gap-2" style={{ fontSize: 11.5 }}>
                   <span className="dot" style={{ background: r.c, height: 8, width: 8 }} />
@@ -105,35 +141,36 @@ window.DashboardScreen = function DashboardScreen({ activity, setRoute, setSelec
           </div>
           <div className="divider" style={{ margin: "14px 0 10px" }} />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
-            <MiniStat label="On track" value="5" tone="success" />
-            <MiniStat label="Delayed"  value="2" tone="warning" />
-            <MiniStat label="Critical" value="1" tone="danger" />
+            <MiniStat label="Active docs" value={D.projects.length} tone="success" />
+            <MiniStat label="Online"      value={online} />
+            <MiniStat label="Offline"     value={offline} tone="warning" />
           </div>
         </div>
 
         {/* Productivity Index */}
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="Productivity index" subtitle="Tangent firm-wide · today vs 30-day baseline" icon="trending-up" />
+          <CardTitle title="Productivity index" subtitle="Focus share of tracked active time · live" icon="trending-up" />
           <div style={{ display: "flex", alignItems: "flex-end", gap: 14 }}>
             <div>
               <div className="tabular" style={{ fontSize: 42, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1 }}>
-                <Counter value={87} format={n => Math.round(n)} />
+                <Counter value={prodIndex} format={n => Math.round(n)} />
                 <span style={{ fontSize: 18, color: "rgb(var(--fg-muted))", marginLeft: 4 }}>%</span>
               </div>
               <div className="center gap-2" style={{ marginTop: 6 }}>
-                <Pill tone="success" icon="arrow-up-right">+6.4%</Pill>
-                <span className="muted" style={{ fontSize: 11 }}>vs 30-day avg</span>
+                <Pill tone="success" dot>live</Pill>
+                <span className="muted" style={{ fontSize: 11 }}>focus ÷ (focus + idle)</span>
               </div>
             </div>
-            <div style={{ flex: 1 }}>
-              <Sparkline data={[64,66,68,69,72,74,73,76,78,80,82,84,85,87]} width={200} height={72} color="rgb(var(--accent))" strokeWidth={2.2} />
+            <div style={{ flex: 1, textAlign: "right" }}>
+              <div className="tabular" style={{ fontSize: 26, fontWeight: 700 }}>{online}</div>
+              <div className="muted" style={{ fontSize: 11 }}>active now</div>
             </div>
           </div>
           <div className="divider" style={{ margin: "12px 0" }} />
           <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-            <ProdRow label="Focus time"      value={68} hint="of work hours" />
-            <ProdRow label="Idle"            value={14} hint="of work hours" tone="warning" />
-            <ProdRow label="Meetings"        value={18} hint="of work hours" tone="info" />
+            <ProdRow label="Focus time" value={focusPct} hint="of active time" />
+            <ProdRow label="Idle"       value={idlePct}  hint="of active time" tone="warning" />
+            <ProdRow label="Meetings"   value={meetPct}  hint="of staff"       tone="info" />
           </div>
         </div>
       </div>
@@ -156,10 +193,10 @@ window.DashboardScreen = function DashboardScreen({ activity, setRoute, setSelec
           </div>
           <div className="divider" style={{ margin: "12px 0 10px" }} />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
-            <MiniStat label="Peak day" value="Thu" hint="142h logged" />
-            <MiniStat label="Peak hour" value="14:00" hint="Avg utilization 92%" />
-            <MiniStat label="Quietest" value="Sun" hint="8h logged" />
-            <MiniStat label="Weekly total" value="612h" hint="+38h vs last wk" tone="success" />
+            <MiniStat label="Peak day"  value={peakDay} hint="busiest weekday" />
+            <MiniStat label="Peak hour" value={peakHour} hint="busiest hour" />
+            <MiniStat label="Events"    value={events24} hint="in feed window" />
+            <MiniStat label="Active docs" value={D.projects.length} hint="being worked in" tone="success" />
           </div>
         </div>
 
@@ -247,7 +284,7 @@ window.DashboardScreen = function DashboardScreen({ activity, setRoute, setSelec
       {/* Row 4: Notifications + Quick actions + Recent submissions */}
       <div className="grid" style={{ gridTemplateColumns: "1.05fr 1.4fr 1fr" }}>
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="Notifications" subtitle="Last 24h · 3 unread" icon="bell" right={<button className="btn btn-ghost btn-sm">Mark all read</button>} />
+          <CardTitle title="Notifications" subtitle={"Last 24h · " + unread + " unread"} icon="bell" right={<button className="btn btn-ghost btn-sm">Mark all read</button>} />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {D.notifications.slice(0, 5).map(n => (
               <div key={n.id} className="row-hover" style={{ padding: "8px 10px", borderRadius: 10, display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
@@ -273,10 +310,10 @@ window.DashboardScreen = function DashboardScreen({ activity, setRoute, setSelec
           <CardTitle title="Quick actions" subtitle="Jump to common workflows" icon="zap" />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
             {[
-              { icon: "box",            label: "Revit Monitor",      sub: "8 active projects",   route: "revit" },
-              { icon: "users",          label: "Workforce",          sub: "28 online · 16 total", route: "employees" },
+              { icon: "box",            label: "Revit Monitor",      sub: D.projects.length + " active documents", route: "revit" },
+              { icon: "users",          label: "Workforce",          sub: online + " online · " + total + " total", route: "employees" },
               { icon: "radio",          label: "Live stream",        sub: "Realtime events",     route: "live" },
-              { icon: "video",          label: "Teams calls",        sub: "2 live meetings",     route: "teams" },
+              { icon: "video",          label: "Teams calls",        sub: meeting + " in meeting",  route: "teams" },
               { icon: "history",        label: "Activity history",   sub: "Searchable archive",  route: "history" },
               { icon: "file-bar-chart", label: "Reports",            sub: "Export & schedule",   route: "reports" },
             ].map(q => (
