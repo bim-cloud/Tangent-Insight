@@ -52,18 +52,32 @@ function App() {
     root.dataset.accent = tw.accent;
   }, [tw.theme, tw.sidebarMode, tw.density, tw.accent]);
 
-  // Live tick — emit new activity events and nudge KPIs
+  // LIVE mode: pull real data from Supabase on an interval and refresh the UI
+  // when it arrives. MOCK mode (?mock=1): fall back to the synthetic ticker.
   useEffect(() => {
     const D = window.TI_DATA;
+
+    if (window.TI_REFRESH) {
+      const sync = () => {
+        setActivity(D.initialActivity.slice());
+        setKpis(D.kpis.slice());
+      };
+      window.addEventListener("ti-data", sync);
+      if (window.TI_LIVE !== undefined) sync();   // data may have already arrived
+      window.TI_REFRESH();                          // re-fetch now that we're listening
+      const id = setInterval(() => { window.TI_REFRESH(); }, 20000);
+      return () => { window.removeEventListener("ti-data", sync); clearInterval(id); };
+    }
+
+    // ---- mock-only synthetic ticker ----
     const kinds = ["sync", "save", "open", "warning", "clash", "teams", "publish", "workset"];
     const projects = D.projects.map(p => p.code);
     const users = D.people.filter(p => p.status !== "offline").map(p => p.id);
-
     const intervalMs = Math.max(800, 4200 / (tw.tickSpeed || 1));
     const id = setInterval(() => {
       const kind = kinds[Math.floor(Math.random() * kinds.length)];
       const project = projects[Math.floor(Math.random() * projects.length)];
-      const user = users[Math.floor(Math.random() * users.length)];
+      const u = users[Math.floor(Math.random() * users.length)];
       const details = {
         sync: ["Sync to central · " + Math.floor(Math.random() * 60 + 5) + " elements", "Sync to central · 3.4s · 18 elements"],
         save: ["Local save · " + (Math.random() * 12 + 1).toFixed(1) + " MB", "Saved view sheet"],
@@ -75,20 +89,9 @@ function App() {
         workset: ["Workset borrowed", "Workset released"],
       };
       const detail = details[kind][Math.floor(Math.random() * details[kind].length)];
-      const newEvent = { id: ++liveSeq.current, kind, user, project, t: 0, detail };
-
-      setActivity(prev => {
-        const aged = prev.map(a => ({ ...a, t: a.t + (Math.random() < 0.3 ? 1 : 0) }));
-        return [newEvent, ...aged].slice(0, 50);
-      });
-
-      setKpis(prev => prev.map(k => {
-        if (Math.random() < 0.35) {
-          const delta = Math.random() < 0.5 ? -1 : 1;
-          return { ...k, value: Math.max(0, k.value + delta) };
-        }
-        return k;
-      }));
+      const newEvent = { id: ++liveSeq.current, kind, user: u, project, t: 0, detail };
+      setActivity(prev => [newEvent, ...prev.map(a => ({ ...a, t: a.t + (Math.random() < 0.3 ? 1 : 0) }))].slice(0, 50));
+      setKpis(prev => prev.map(k => Math.random() < 0.35 ? { ...k, value: Math.max(0, k.value + (Math.random() < 0.5 ? -1 : 1)) } : k));
     }, intervalMs);
     return () => clearInterval(id);
   }, [tw.tickSpeed]);
@@ -99,9 +102,9 @@ function App() {
   }, [route]);
 
   const user = {
-    name: "Layla Haddad",
-    initials: "LH",
-    role: "BIM Manager · Tangent Dubai",
+    name: "Operations",
+    initials: "OP",
+    role: "Tangent Insight · Dubai",
     discipline: "MANAGER",
   };
 
