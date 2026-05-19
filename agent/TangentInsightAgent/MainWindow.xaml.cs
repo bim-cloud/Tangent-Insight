@@ -9,6 +9,18 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        try
+        {
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            using var s = asm.GetManifestResourceStream("TangentInsightAgent.app.ico");
+            if (s is not null)
+                Icon = System.Windows.Media.Imaging.BitmapFrame.Create(
+                    s,
+                    System.Windows.Media.Imaging.BitmapCreateOptions.None,
+                    System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+        }
+        catch { /* keep default window icon */ }
+
         MachineText.Text  = $"Machine: {cfg.Agent.MachineId}" +
                             (string.IsNullOrWhiteSpace(cfg.Agent.PersonId)
                                ? "  (unmapped)"

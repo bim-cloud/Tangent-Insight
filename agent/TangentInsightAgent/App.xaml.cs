@@ -11,9 +11,23 @@ public partial class App : Application
 {
     private Mutex?         _single;
     private NotifyIcon?    _tray;
+    private Icon?          _appIcon;
     private AgentService?  _agent;
     private MainWindow?    _window;
     private AgentConfig    _cfg = new();
+
+    /// <summary>Loads the embedded app.ico (works in single-file publish).</summary>
+    public static Icon LoadAppIcon()
+    {
+        try
+        {
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            using var s = asm.GetManifestResourceStream("TangentInsightAgent.app.ico");
+            if (s is not null) return new Icon(s);
+        }
+        catch { /* fall back below */ }
+        return SystemIcons.Application;
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -64,9 +78,10 @@ public partial class App : Application
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitApp());
 
+        _appIcon = LoadAppIcon();
         _tray = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = _appIcon,
             Visible = true,
             Text = "Tangent Insight Agent",
             ContextMenuStrip = menu
@@ -85,6 +100,7 @@ public partial class App : Application
     {
         _agent?.Dispose();
         if (_tray is not null) { _tray.Visible = false; _tray.Dispose(); }
+        _appIcon?.Dispose();
         _single?.ReleaseMutex();
         Shutdown();
     }

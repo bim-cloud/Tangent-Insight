@@ -1,6 +1,6 @@
 # Tangent Insight Agent
 
-Windows tray application (.NET 8 / WPF, **zero NuGet dependencies**) that
+Windows tray application (.NET 9 / WPF, **zero NuGet dependencies**) that
 samples each workstation and pushes observations to Supabase.
 
 ## What it collects (per interval, default 60 s)
@@ -22,14 +22,13 @@ into `people.status`, daily `attendance`, and `activity_events`
 
 ```bash
 cd agent
-dotnet publish TangentInsightAgent/TangentInsightAgent.csproj ^
-  -c Release -r win-x64 --self-contained false ^
-  -p:PublishSingleFile=true -o publish
+dotnet publish TangentInsightAgent/TangentInsightAgent.csproj -c Release -o publish
 ```
 
 Produces `publish/TangentInsightAgent.exe` + `publish/appsettings.json`.
-(Requires the .NET 8 Desktop Runtime on target machines, or drop
-`--self-contained false` for a standalone build.)
+Build settings live in the .csproj (Release = self-contained single-file,
+win-x64, compressed). **No .NET runtime is required on target machines** — the
+runtime is bundled into the exe, so it runs on any Windows 10/11 x64 box.
 
 ## Configure (`appsettings.json`)
 

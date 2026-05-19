@@ -2,8 +2,8 @@
 ; Tangent Insight Agent — Inno Setup script
 ; Build the app first:
 ;   dotnet publish agent/TangentInsightAgent/TangentInsightAgent.csproj ^
-;     -c Release -r win-x64 --self-contained false ^
-;     -p:PublishSingleFile=true -o agent/publish
+;     -c Release -o agent/publish
+; (Release config in the .csproj already sets self-contained single-file win-x64.)
 ; Then compile this .iss with Inno Setup 6.
 ; ============================================================================
 
@@ -22,6 +22,7 @@ DefaultGroupName=Tangent Insight
 DisableProgramGroupPage=yes
 OutputDir=Output
 OutputBaseFilename=TangentInsightAgent-Setup-{#AppVersion}
+SetupIconFile=..\TangentInsightAgent\app.ico
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=admin

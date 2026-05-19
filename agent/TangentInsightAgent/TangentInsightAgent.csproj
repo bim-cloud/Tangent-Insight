@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -13,15 +13,25 @@
     <Product>Tangent Insight Agent</Product>
     <Company>Tangent Landscape Architecture</Company>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
-  <!-- One-click single-file release:
-       dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -->
+  <ItemGroup>
+    <!-- Embedded so the tray/window can load it even in single-file publish.
+         Logical name: TangentInsightAgent.app.ico -->
+    <EmbeddedResource Include="app.ico" />
+  </ItemGroup>
+
+  <!-- One-click self-contained single-file release (no .NET runtime needed on
+       any target machine). Build with just:
+         dotnet publish -c Release -o publish -->
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <PublishSingleFile>true</PublishSingleFile>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>none</DebugType>
   </PropertyGroup>
 

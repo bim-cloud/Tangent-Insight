@@ -13,7 +13,7 @@ tangent-insight/
 │   └── supabase-client.js     ← OPTIONAL live data layer (off by default)
 ├── vercel.json                ← static config + correct .jsx content-type
 ├── supabase/migrations/       ← run-yourself SQL (0001 → 0004)
-└── agent/                     ← C#/.NET 8 WPF monitoring agent + Inno Setup
+└── agent/                     ← C#/.NET 9 WPF monitoring agent + Inno Setup
 ```
 
 **Data model right now:** the dashboard renders the seed dataset in
