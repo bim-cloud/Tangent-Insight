@@ -214,16 +214,13 @@ function AgentHealthChip() {
     return () => clearInterval(id);
   }, []);
 
-  // Synthetic agent telemetry — would come from the server in production
+  // Real fleet telemetry from the live data layer (agent_machines).
+  const fleet = (window.TI_DATA && window.TI_DATA.agentFleet) || { total: 0, online: 0, offline: 0 };
   const agents = {
-    total: 16,
-    healthy: 14,
-    degraded: 1,
-    offline: 1,
-    avgCpu: 1.4,
-    avgMem: 84,
-    eventsPerMin: 11.2,
-    queueLag: "0.8s",
+    total: fleet.total,
+    healthy: fleet.online,
+    degraded: 0,
+    offline: fleet.offline,
   };
 
   return (
@@ -272,7 +269,7 @@ function AgentHealthChip() {
           <div className="between" style={{ marginBottom: 10 }}>
             <div>
               <div className="micro" style={{ color: "rgb(var(--success))" }}>AGENT FLEET</div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>Tangent Insight Agent v2.0.0</div>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>Tangent Insight Agent v1.0.0</div>
             </div>
             <Pill tone="success" dot>Healthy</Pill>
           </div>
@@ -284,10 +281,8 @@ function AgentHealthChip() {
           </div>
           <div className="divider" style={{ margin: "10px 0" }} />
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            <FleetLine label="Avg CPU overhead"  v={agents.avgCpu + "%"}    hint="≤ 2% target" />
-            <FleetLine label="Avg memory"         v={agents.avgMem + " MB"} hint="resident set size" />
-            <FleetLine label="Events / min"       v={agents.eventsPerMin}    hint="last 5 min" />
-            <FleetLine label="Queue lag"          v={agents.queueLag}        hint="batch every 5s" />
+            <FleetLine label="Reporting now" v={agents.healthy + " / " + agents.total} hint="agents online" />
+            <FleetLine label="Coverage"      v={agents.total ? Math.round(agents.healthy / agents.total * 100) + "%" : "—"} hint="of installed agents" />
           </div>
           <div className="divider" style={{ margin: "10px 0" }} />
           <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.5 }}>
