@@ -46,6 +46,28 @@ create table if not exists public.people (
   email        text,
   updated_at   timestamptz default now()
 );
+
+-- Schema reconciliation: CREATE TABLE IF NOT EXISTS does NOT alter a table
+-- that already exists from an earlier version of this migration. These
+-- ADD COLUMN IF NOT EXISTS guards upgrade an existing public.people in place
+-- so the migration is safe to re-run after a schema change.
+alter table public.people add column if not exists initials    text;
+alter table public.people add column if not exists role        text;
+alter table public.people add column if not exists discipline  text;
+alter table public.people add column if not exists dept        text;
+alter table public.people add column if not exists status      text default 'offline';
+alter table public.people add column if not exists project     text;
+alter table public.people add column if not exists version     text;
+alter table public.people add column if not exists focus_min   integer default 0;
+alter table public.people add column if not exists idle_min    integer default 0;
+alter table public.people add column if not exists hours       numeric(6,2) default 0;
+alter table public.people add column if not exists ot          numeric(6,2) default 0;
+alter table public.people add column if not exists utilization integer default 0;
+alter table public.people add column if not exists machine     text;
+alter table public.people add column if not exists username    text;
+alter table public.people add column if not exists email       text;
+alter table public.people add column if not exists updated_at  timestamptz default now();
+
 create index if not exists people_status_idx   on public.people (status);
 create index if not exists people_machine_idx  on public.people (machine);
 create index if not exists people_username_idx on public.people (lower(username));
