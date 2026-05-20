@@ -191,35 +191,42 @@ window.ReportsScreen = function ReportsScreen() {
                 </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
-                {[
-                  { l: "Total hours", v: "612h" },
-                  { l: "Avg utilization", v: "82%" },
-                  { l: "Overtime", v: "38h" },
-                  { l: "Absences", v: "3" },
-                ].map((s, i) => (
-                  <div key={i} style={{ padding: 10, border: "1px solid #E2E8F0", borderRadius: 8 }}>
-                    <div style={{ fontSize: 9, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.06, fontWeight: 600 }}>{s.l}</div>
-                    <div style={{ fontWeight: 700, fontSize: 18, marginTop: 2 }}>{s.v}</div>
-                  </div>
-                ))}
+                {(() => {
+                  const totalH  = D.people.reduce((a,p)=>a+p.hours,0);
+                  const totalOT = D.people.reduce((a,p)=>a+p.ot,0);
+                  const active  = D.people.filter(p=>p.status!=="offline");
+                  const avgUtil = active.length ? Math.round(active.reduce((a,p)=>a+p.utilization,0)/active.length) : 0;
+                  const absent  = D.people.filter(p=>p.status==="offline").length;
+                  return [
+                    { l: "Total hours · today", v: totalH.toFixed(1) + "h" },
+                    { l: "Avg utilization",     v: avgUtil + "%" },
+                    { l: "Overtime · today",    v: totalOT.toFixed(1) + "h" },
+                    { l: "Offline now",         v: absent },
+                  ].map((s, i) => (
+                    <div key={i} style={{ padding: 10, border: "1px solid #E2E8F0", borderRadius: 8 }}>
+                      <div style={{ fontSize: 9, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.06, fontWeight: 600 }}>{s.l}</div>
+                      <div style={{ fontWeight: 700, fontSize: 18, marginTop: 2 }}>{s.v}</div>
+                    </div>
+                  ));
+                })()}
               </div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10.5 }}>
                 <thead>
                   <tr style={{ background: "#F1F5F9" }}>
-                    {["Employee", "Dept", "Hours", "OT", "Util %", "Sessions"].map(h => (
+                    {["Employee", "Dept", "Hours today", "OT", "Util %", "Status"].map(h => (
                       <th key={h} style={{ padding: "6px 8px", textAlign: "left", color: "#475569", fontWeight: 600, fontSize: 9.5, letterSpacing: 0.04, textTransform: "uppercase" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {D.people.slice(0, 6).map(p => (
+                  {D.people.slice(0, 12).map(p => (
                     <tr key={p.id} style={{ borderBottom: "1px solid #E2E8F0" }}>
                       <td style={{ padding: "6px 8px", fontWeight: 500 }}>{p.name}</td>
                       <td style={{ padding: "6px 8px", color: "#64748B" }}>{p.dept}</td>
-                      <td style={{ padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>{(p.hours * 5).toFixed(1)}h</td>
-                      <td style={{ padding: "6px 8px", fontVariantNumeric: "tabular-nums", color: p.ot > 0.5 ? "#F59E0B" : "#94A3B8" }}>{(p.ot * 5).toFixed(1)}h</td>
+                      <td style={{ padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>{p.hours.toFixed(1)}h</td>
+                      <td style={{ padding: "6px 8px", fontVariantNumeric: "tabular-nums", color: p.ot > 0.5 ? "#F59E0B" : "#94A3B8" }}>{p.ot.toFixed(1)}h</td>
                       <td style={{ padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>{p.utilization}%</td>
-                      <td style={{ padding: "6px 8px", fontVariantNumeric: "tabular-nums" }}>{Math.floor(Math.random() * 18 + 8)}</td>
+                      <td style={{ padding: "6px 8px", color: p.status === "offline" ? "#94A3B8" : "#10B981" }}>{p.status}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -229,7 +236,7 @@ window.ReportsScreen = function ReportsScreen() {
 
           <div className="between" style={{ marginTop: 14 }}>
             <div className="center gap-2 muted" style={{ fontSize: 11.5 }}>
-              <Icon name="info" size={12} /> Report includes 4 pages · 16 employees · 612 hours
+              <Icon name="info" size={12} /> Report includes {D.people.length} employees · {D.people.reduce((a,p)=>a+p.hours,0).toFixed(1)}h today
             </div>
             <div className="center gap-2">
               <button className="btn btn-secondary btn-sm"><Icon name="send" size={12} /> Email</button>

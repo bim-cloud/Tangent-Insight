@@ -182,54 +182,105 @@ function Stat2({ icon, label, value, sub, tone }) {
 /* ========== ANALYTICS ========== */
 window.AnalyticsScreen = function AnalyticsScreen() {
   const D = window.TI_DATA;
+  const acts = D.initialActivity || [];
+
+  // Live: workforce-wide focus share, active users, hours, "risk" = idle staff
+  const sumF = D.people.reduce((a,p)=>a+p.focusMin,0);
+  const sumI = D.people.reduce((a,p)=>a+p.idleMin,0);
+  const focusPct = (sumF + sumI) ? Math.round(sumF/(sumF+sumI)*100) : 0;
+  const activeUsers = D.people.filter(p=>p.status!=="offline").length;
+  const avgFocus = activeUsers ? (D.people.reduce((a,p)=>a+p.focusMin,0)/activeUsers/60).toFixed(1) : "0.0";
+  const idleN = D.people.filter(p=>p.status==="idle").length;
+  const hm = D.heatmap ? D.heatmap() : {days:[],hours:[],data:[]};
+
+  // Discipline averages (real)
+  const byDisc = {};
+  D.people.forEach(p => {
+    const k = p.discipline || "UNASSIGNED";
+    byDisc[k] = byDisc[k] || { n:0, util:0, active:0 };
+    byDisc[k].n++; byDisc[k].util += p.utilization;
+    if (p.status !== "offline") byDisc[k].active++;
+  });
+  const discRows = Object.keys(byDisc).map(k => ({
+    l: k.charAt(0)+k.slice(1).toLowerCase(),
+    v: byDisc[k].n ? Math.round(byDisc[k].util/byDisc[k].n) : 0,
+    n: byDisc[k].n, active: byDisc[k].active,
+    c: "rgb(var(--" + k.toLowerCase() + "))",
+  })).filter(r => r.n).sort((a,b)=>b.v-a.v);
+
+  // Project participation today
+  const byProj = {};
+  D.people.forEach(p => {
+    if (!p.project || p.project === "—" || p.project === "Multi") return;
+    byProj[p.project] = byProj[p.project] || { n:0, hrs:0 };
+    byProj[p.project].n++; byProj[p.project].hrs += p.hours;
+  });
+  const projRows = Object.keys(byProj).map(k => ({ name:k, n:byProj[k].n, hrs:byProj[k].hrs }))
+    .sort((a,b) => b.hrs - a.hrs).slice(0, 10);
+
   return (
     <PageShell>
       <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-        <SmallSummary icon="trending-up" label="Productivity"  value="87%" tone="success" delta="+6.4%" />
-        <SmallSummary icon="users"       label="Active users"  value="28"  tone="accent" />
-        <SmallSummary icon="timer"       label="Focus avg"     value="6.4h" tone="muted" />
-        <SmallSummary icon="alert-octagon" label="Risk score"  value="38"  tone="warning" />
+        <SmallSummary icon="trending-up" label="Focus share"  value={focusPct + "%"} tone="success" hint="focus / (focus + idle)" />
+        <SmallSummary icon="users"       label="Active staff" value={activeUsers}   tone="accent" />
+        <SmallSummary icon="timer"       label="Avg focus"    value={avgFocus + "h"} tone="muted" hint="per active person" />
+        <SmallSummary icon="moon"        label="Idle staff"   value={idleN}         tone={idleN ? "warning" : "muted"} />
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: "1.6fr 1fr" }}>
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="Productivity over time" subtitle="12-week rolling · all departments" icon="line-chart" />
-          <MultiLine height={240}
-            series={[
-              { color: "rgb(var(--accent))",      values: [72,74,73,76,78,80,79,82,84,83,85,87] },
-              { color: "rgb(var(--accent-2))",    values: [40,42,45,48,50,52,55,58,60,62,64,68] },
-            ]}
-            labels={["W-11","W-10","W-9","W-8","W-7","W-6","W-5","W-4","W-3","W-2","W-1","Now"]}
-          />
-          <div className="center gap-3 muted" style={{ fontSize: 11, marginTop: 6 }}>
-            <span className="center gap-2"><span style={{ width: 14, height: 3, background: "rgb(var(--accent))", borderRadius: 2 }} /> Productivity %</span>
-            <span className="center gap-2"><span style={{ width: 14, height: 3, background: "rgb(var(--accent-2))", borderRadius: 2 }} /> Focus hours index</span>
-          </div>
+          <CardTitle title="Top projects · today" subtitle="By logged hours from agent data" icon="folder-kanban" />
+          {projRows.length === 0
+            ? <div className="muted" style={{ fontSize: 12, padding: 14, textAlign: "center" }}>
+                No project work logged yet. Projects appear once agents observe Revit documents open.
+              </div>
+            : (
+              <table className="table" style={{ marginTop: 8 }}>
+                <thead><tr><th>Project</th><th className="tabular">Staff</th><th className="tabular">Hours</th><th>Share</th></tr></thead>
+                <tbody>
+                  {(() => {
+                    const total = projRows.reduce((a,r)=>a+r.hrs,0) || 1;
+                    return projRows.map(r => (
+                      <tr key={r.name}>
+                        <td className="mono" style={{ fontSize: 12 }}>{r.name}</td>
+                        <td className="tabular">{r.n}</td>
+                        <td className="tabular">{r.hrs.toFixed(1)}h</td>
+                        <td style={{ minWidth: 180 }}>
+                          <div className="progress" style={{ height: 4 }}>
+                            <i style={{ width: (r.hrs/total*100) + "%" }} />
+                          </div>
+                        </td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            )}
         </div>
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="By discipline" subtitle="Avg utilization · this week" icon="layers" />
-          {[
-            { l: "Modeler",     v: 86, c: "rgb(var(--modeler))" },
-            { l: "Detailer",    v: 91, c: "rgb(var(--detailer))" },
-            { l: "Coordinator", v: 78, c: "rgb(var(--coordinator))" },
-            { l: "Manager",     v: 84, c: "rgb(var(--manager))" },
-          ].map(r => (
-            <div key={r.l} style={{ marginTop: 10 }}>
-              <div className="between" style={{ fontSize: 11.5, marginBottom: 4 }}>
-                <span>{r.l}</span>
-                <span className="tabular" style={{ fontWeight: 600 }}>{r.v}%</span>
-              </div>
-              <div className="progress"><i style={{ width: r.v + "%", background: r.c }} /></div>
-            </div>
-          ))}
+          <CardTitle title="By discipline" subtitle="Avg utilization · live" icon="layers" />
+          {discRows.length === 0
+            ? <div className="muted" style={{ fontSize: 12 }}>No discipline data yet.</div>
+            : discRows.map(r => (
+                <div key={r.l} style={{ marginTop: 10 }}>
+                  <div className="between" style={{ fontSize: 11.5, marginBottom: 4 }}>
+                    <span>{r.l} <span className="muted">· {r.active}/{r.n} active</span></span>
+                    <span className="tabular" style={{ fontWeight: 600 }}>{r.v}%</span>
+                  </div>
+                  <div className="progress"><i style={{ width: r.v + "%", background: r.c }} /></div>
+                </div>
+              ))}
         </div>
       </div>
 
       <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-        <CardTitle title="Activity intensity · 7 × 12" subtitle="Logged work intensity across the past week" icon="calendar" />
-        <div style={{ overflow: "auto" }}>
-          <Heatmap {...D.heatmap()} />
-        </div>
+        <CardTitle title="Activity intensity · last week"
+                   subtitle="Built from real activity events bucketed by day × hour" icon="calendar" />
+        {acts.length === 0
+          ? <div className="muted" style={{ fontSize: 12, padding: 14, textAlign: "center" }}>
+              No activity events captured yet.
+            </div>
+          : <div style={{ overflow: "auto" }}><Heatmap {...hm} /></div>}
       </div>
     </PageShell>
   );
@@ -238,57 +289,106 @@ window.AnalyticsScreen = function AnalyticsScreen() {
 /* ========== NOTIFICATIONS ========== */
 window.NotificationsScreen = function NotificationsScreen() {
   const D = window.TI_DATA;
-  const all = [
-    ...D.notifications,
-    { id: "n7", kind: "info",    title: "Marcus R. published Saadiyat NWC submission", time: "1d",  read: true },
-    { id: "n8", kind: "success", title: "Weekly attendance report delivered",          time: "1d",  read: true },
-    { id: "n9", kind: "warning", title: "TAIF12 · 3 new disjoined hosts after sync",   time: "2d",  read: true },
-    { id: "n10",kind: "info",    title: "New user added: Diego Salinas (Modeler)",     time: "3d",  read: true },
-  ];
+  const acts = D.initialActivity || [];
+
+  // Build notifications from REAL signals — no hardcoded items
+  const derived = [];
+
+  // 1. Stale / unmapped machines — read from agent_fleet via TI_SUPABASE_REST if available
+  const [machines, setMachines] = React.useState([]);
+  React.useEffect(() => {
+    if (!window.TI_SUPABASE_REST) return;
+    window.TI_SUPABASE_REST("agent_machines", "select=*&order=last_seen.desc")
+      .then(rs => setMachines(Array.isArray(rs) ? rs : []))
+      .catch(()=>{});
+  }, []);
+  const unmapped = machines.filter(m => !m.person_id);
+  const offlineMachines = machines.filter(m => !m.online).length;
+
+  // 2. Idle staff (>= 30m)
+  D.people.filter(p => p.status === "idle" && p.idleMin >= 30).forEach(p => {
+    derived.push({ id: "idle-"+p.id, kind: "warning",
+      title: p.name + " · idle " + p.idleMin + "m on " + (p.project === "—" ? "no project" : p.project),
+      time: p.idleMin + "m", read: false });
+  });
+
+  // 3. Recent warnings / errors from the activity feed
+  acts.filter(a => a.kind === "warning" || a.kind === "error").slice(0, 6).forEach(a => {
+    const u = D.byId(a.user);
+    derived.push({ id: "act-"+a.id, kind: a.kind === "error" ? "danger" : "warning",
+      title: (u ? u.name : "System") + " · " + a.detail,
+      time: a.t < 1 ? "just now" : a.t + "m", read: false });
+  });
+
+  // 4. Unmapped machines (admin concern)
+  if (unmapped.length) {
+    derived.push({ id: "unmapped", kind: "info",
+      title: unmapped.length + " machine(s) reporting with no mapped user — fix in Autodesk ID Manager",
+      time: "now", read: false });
+  }
+
+  // 5. Recent successful logins (last 60 min)
+  acts.filter(a => a.kind === "login" && a.t <= 60).slice(0, 4).forEach(a => {
+    const u = D.byId(a.user);
+    if (u) derived.push({ id: "login-"+a.id, kind: "success",
+      title: u.name + " signed in",
+      time: a.t < 1 ? "just now" : a.t + "m", read: true });
+  });
+
+  const [filter, setFilter] = React.useState("all");
+  const shown = derived.filter(n => filter === "all" ? true : filter === "unread" ? !n.read : n.kind === filter);
+  const unread = derived.filter(n => !n.read).length;
+
   return (
     <PageShell maxWidth={920}>
       <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
         <div className="between" style={{ marginBottom: 14 }}>
-          <CardTitle title="Notifications" subtitle="3 unread · all delivery channels" icon="bell" />
+          <CardTitle title="Notifications"
+                     subtitle={unread + " unread · derived from live activity"} icon="bell" />
           <div className="center gap-2">
             <div className="seg">
-              <button className="on">All</button>
-              <button>Unread</button>
-              <button>Mentions</button>
-              <button>System</button>
+              <button className={filter==="all" ? "on" : ""}     onClick={() => setFilter("all")}>All</button>
+              <button className={filter==="unread" ? "on" : ""}  onClick={() => setFilter("unread")}>Unread</button>
+              <button className={filter==="warning" ? "on" : ""} onClick={() => setFilter("warning")}>Warnings</button>
+              <button className={filter==="danger" ? "on" : ""}  onClick={() => setFilter("danger")}>Critical</button>
             </div>
-            <button className="btn btn-secondary btn-sm">Mark all read</button>
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {all.map(n => (
-            <div key={n.id} className="row-hover" style={{
-              padding: "11px 12px", borderRadius: 12,
-              border: "1px solid rgb(var(--hairline))",
-              borderLeft: `3px solid rgb(var(--${n.kind}))`,
-              background: n.read ? "transparent" : "rgb(var(--accent) / 0.04)",
-              display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer",
-            }}>
-              <div style={{
-                height: 34, width: 34, borderRadius: 10, flexShrink: 0,
-                background: `rgb(var(--${n.kind}) / 0.12)`, color: `rgb(var(--${n.kind}))`,
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
+
+        {shown.length === 0 ? (
+          <div className="muted" style={{ fontSize: 12, padding: 24, textAlign: "center" }}>
+            No notifications. The dashboard creates these automatically from live activity — idle staff over 30 minutes, warnings/errors from the agent, unmapped machines, and recent sign-ins.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {shown.map(n => (
+              <div key={n.id} className="row-hover" style={{
+                padding: "11px 12px", borderRadius: 12,
+                border: "1px solid rgb(var(--hairline))",
+                borderLeft: `3px solid rgb(var(--${n.kind}))`,
+                background: n.read ? "transparent" : "rgb(var(--accent) / 0.04)",
+                display: "flex", alignItems: "flex-start", gap: 12,
               }}>
-                <Icon name={n.kind === "danger" ? "alert-octagon" : n.kind === "warning" ? "alert-triangle" : n.kind === "success" ? "check-circle" : "info"} size={16} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: n.read ? 500 : 600 }}>{n.title}</div>
-                <div className="muted center gap-2" style={{ fontSize: 11, marginTop: 2 }}>
-                  <Icon name="clock" size={10} /> {n.time} ago
-                  <span>·</span>
-                  <span style={{ textTransform: "capitalize" }}>{n.kind}</span>
+                <div style={{
+                  height: 34, width: 34, borderRadius: 10, flexShrink: 0,
+                  background: `rgb(var(--${n.kind}) / 0.12)`, color: `rgb(var(--${n.kind}))`,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <Icon name={n.kind === "danger" ? "alert-octagon" : n.kind === "warning" ? "alert-triangle" : n.kind === "success" ? "check-circle" : "info"} size={16} />
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: n.read ? 500 : 600 }}>{n.title}</div>
+                  <div className="muted center gap-2" style={{ fontSize: 11, marginTop: 2 }}>
+                    <Icon name="clock" size={10} /> {n.time}
+                    <span>·</span>
+                    <span style={{ textTransform: "capitalize" }}>{n.kind}</span>
+                  </div>
+                </div>
+                {!n.read && <span className="dot" style={{ background: "rgb(var(--accent))", marginTop: 8 }} />}
               </div>
-              {!n.read && <span className="dot" style={{ background: "rgb(var(--accent))", marginTop: 8 }} />}
-              <button className="btn btn-ghost btn-icon"><Icon name="more-horizontal" size={13} /></button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </PageShell>
   );
@@ -384,53 +484,8 @@ window.AdminScreen = function AdminScreen() {
           ? <div className="muted" style={{ padding: 16, fontSize: 12, textAlign: "center" }}>Loading agent data…</div>
           : idTable.length === 0
             ? <div className="muted" style={{ padding: 16, fontSize: 12, textAlign: "center" }}>No Autodesk logins captured yet. Run the agent on a workstation that is signed into Autodesk and they will appear here.</div>
-            : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Autodesk ID (email)</th>
-                    <th>Used by (humans)</th>
-                    <th>Machines</th>
-                    <th className="tabular">Last seen</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {idTable.map(r => {
-                    const shared = r.users.length > 1;
-                    return (
-                      <tr key={r.autodesk_id}>
-                        <td className="mono" style={{ fontSize: 12 }}>{r.autodesk_id}</td>
-                        <td>
-                          {r.users.length === 0
-                            ? <span className="muted">— unresolved —</span>
-                            : <div className="center gap-2" style={{ flexWrap: "wrap" }}>
-                                {r.users.map(uid => {
-                                  const p = D.byId(uid);
-                                  return p
-                                    ? <span key={uid} className="center gap-2" style={{ background: "rgb(var(--bg-sunken))", borderRadius: 999, padding: "2px 8px 2px 2px" }}>
-                                        <Avatar name={p.name} initials={p.initials} size={20} discipline={p.discipline} status={p.status} />
-                                        <span style={{ fontSize: 11.5 }}>{p.name}</span>
-                                      </span>
-                                    : <span key={uid} className="mono muted" style={{ fontSize: 11 }}>{uid}</span>;
-                                })}
-                              </div>}
-                        </td>
-                        <td className="mono" style={{ fontSize: 11 }}>{r.machines.length ? r.machines.slice(0, 3).join(", ") + (r.machines.length > 3 ? " +" + (r.machines.length - 3) : "") : <span className="muted">—</span>}</td>
-                        <td className="muted tabular" style={{ fontSize: 11 }}>{r.last_seen ? new Date(r.last_seen).toLocaleString("en-GB") : <span className="muted">never</span>}</td>
-                        <td>
-                          {r.source === "directory"
-                            ? <Pill tone="neutral">From directory</Pill>
-                            : shared
-                                ? <Pill tone="warning">Shared · {r.users.length}</Pill>
-                                : <Pill tone="success">Observed</Pill>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+            : <AutodeskIdList rows={idTable} machines={machines} D={D} />
+        }
       </div>
 
       {/* Machine -> person mapping (the second table the user asked for) */}
@@ -613,29 +668,7 @@ window.SettingsScreen = function SettingsScreen() {
           {tab === "profile" && (
             !session
               ? <div className="muted">You are not signed in.</div>
-              : <>
-                  <h2 className="h2">Profile</h2>
-                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>From your sign-in and directory record. Edits flow through your administrator.</div>
-                  <div className="divider" style={{ margin: "16px 0" }} />
-                  <div className="grid" style={{ gridTemplateColumns: "auto 1fr", gap: 24, alignItems: "flex-start" }}>
-                    <div className="col gap-3" style={{ alignItems: "center" }}>
-                      <Avatar name={me ? me.name : email} initials={me ? me.initials : (email || "?").slice(0,2).toUpperCase()} size={84} discipline={me ? me.discipline : "MANAGER"} />
-                      <div className="muted" style={{ fontSize: 10.5 }}>Avatar generated from name</div>
-                    </div>
-                    <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                      <Field label="Full name" value={me ? me.name : "—"} readOnly />
-                      <Field label="Email" value={email || "—"} readOnly />
-                      <Field label="Role" value={me ? me.role : "—"} readOnly />
-                      <Field label="Department" value={me ? me.dept : "—"} readOnly />
-                      <Field label="Workstation" value={me ? me.machine : "—"} readOnly />
-                      <Field label="Windows account" value={me ? (me.username || "—") : "—"} readOnly mono />
-                    </div>
-                  </div>
-                  <div className="divider" style={{ margin: "20px 0" }} />
-                  <div className="muted" style={{ fontSize: 11.5 }}>
-                    Need a change? Profile data comes from <span className="mono">public.people</span> in Supabase — your administrator can update it.
-                  </div>
-                </>
+              : <ProfilePanel session={session} email={email} me={me} />
           )}
 
           {tab === "appearance" && (
@@ -717,6 +750,127 @@ window.SettingsScreen = function SettingsScreen() {
   );
 };
 
+function ProfilePanel({ session, email, me }) {
+  const ROLES = [
+    "BIM Manager","Assistant BIM Manager","BIM Coordinator","BIM Modeler","BIM Detailer",
+    "Senior Modeler","Senior Detailer","Modeler","Detailer","Junior Modeler",
+    "Project Manager","Project Director","Director",
+    "Landscape Architect","Senior Landscape Architect","Landscape Designer",
+    "Architect","Senior Architect","Civil Engineer","Structural Engineer",
+    "Automation Specialist","CAD Technician","Administrator","Staff",
+  ];
+  const DEPTS = ["BIM","Landscape","Architecture","Detailing","Engineering","PM","Civil","Operations","IT","Admin","Unassigned"];
+  const DISCIPLINES = ["MANAGER","COORDINATOR","MODELER","DETAILER","UNASSIGNED"];
+
+  const [role, setRole] = React.useState(me ? me.role || "" : "");
+  const [dept, setDept] = React.useState(me ? me.dept || "" : "");
+  const [disc, setDisc] = React.useState(me ? me.discipline || "UNASSIGNED" : "UNASSIGNED");
+  const [status, setStatus] = React.useState(null);
+  const dirty = me && (role !== me.role || dept !== me.dept || disc !== me.discipline);
+
+  React.useEffect(() => {
+    if (!me) return;
+    setRole(me.role || ""); setDept(me.dept || ""); setDisc(me.discipline || "UNASSIGNED");
+  }, [me && me.id]);
+
+  async function save() {
+    if (!me || !session) return;
+    setStatus({ tone: "loading", msg: "Saving…" });
+    try {
+      const cfg = window.TI_SUPABASE;
+      const r = await fetch(cfg.url + "/rest/v1/people?id=eq." + encodeURIComponent(me.id), {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: cfg.anon,
+          Authorization: "Bearer " + session.access_token,
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({ role, dept, discipline: disc }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || j.hint || ("HTTP " + r.status));
+      }
+      // Reflect in TI_DATA locally so the rest of the dashboard updates immediately
+      const local = (window.TI_DATA.people || []).find(p => p.id === me.id);
+      if (local) { local.role = role; local.dept = dept; local.discipline = disc; }
+      setStatus({ tone: "ok", msg: "Saved. Refresh other tabs to see the change everywhere." });
+      // Force re-render of dependent screens by re-fetching
+      if (window.TI_REFRESH) window.TI_REFRESH();
+    } catch (e) {
+      setStatus({ tone: "error", msg: "Couldn't save — " + e.message + ". (Run migration 0005_self_edit_policy.sql in Supabase.)" });
+    }
+  }
+
+  function reset() { if (me) { setRole(me.role || ""); setDept(me.dept || ""); setDisc(me.discipline || "UNASSIGNED"); setStatus(null); } }
+
+  return (
+    <>
+      <h2 className="h2">Profile</h2>
+      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+        Your identity comes from your sign-in. You can update your role, department, and discipline here.
+      </div>
+      <div className="divider" style={{ margin: "16px 0" }} />
+      <div className="grid" style={{ gridTemplateColumns: "auto 1fr", gap: 24, alignItems: "flex-start" }}>
+        <div className="col gap-3" style={{ alignItems: "center" }}>
+          <Avatar name={me ? me.name : email}
+                  initials={me ? me.initials : (email || "?").slice(0,2).toUpperCase()}
+                  size={84} discipline={disc} />
+          <div className="muted" style={{ fontSize: 10.5 }}>Avatar generated from name</div>
+        </div>
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Full name" value={me ? me.name : "—"} readOnly />
+          <Field label="Email" value={email || "—"} readOnly />
+          <SelectField label="Role"       value={role} options={ROLES}       onChange={setRole} />
+          <SelectField label="Department" value={dept} options={DEPTS}       onChange={setDept} />
+          <SelectField label="Discipline" value={disc} options={DISCIPLINES} onChange={setDisc} />
+          <Field label="Workstation" value={me ? me.machine : "—"} readOnly />
+        </div>
+      </div>
+
+      {status && (
+        <div style={{
+          marginTop: 14, fontSize: 12, padding: "8px 12px", borderRadius: 8,
+          background: status.tone === "error" ? "rgb(var(--danger) / 0.08)"
+                   : status.tone === "ok"    ? "rgb(var(--success) / 0.08)"
+                   : "rgb(var(--bg-sunken))",
+          color: status.tone === "error" ? "rgb(var(--danger))"
+              :  status.tone === "ok"    ? "rgb(var(--success))"
+              :  "rgb(var(--fg-soft))",
+        }}>{status.msg}</div>
+      )}
+
+      <div className="divider" style={{ margin: "20px 0" }} />
+      <div className="between">
+        <div className="muted" style={{ fontSize: 11.5 }}>
+          If a role you need isn't in the list, ask the BIM team — they can add it in <span className="mono">public.people</span>.
+        </div>
+        <div className="center gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={reset} disabled={!dirty}>Cancel</button>
+          <button className="btn btn-primary btn-sm" onClick={save} disabled={!dirty || (status && status.tone === "loading")}>
+            <Icon name="save" size={12} /> Save changes
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function SelectField({ label, value, options, onChange }) {
+  // Allow current value to appear even if not in the predefined list
+  const opts = options.includes(value) || !value ? options : [value, ...options];
+  return (
+    <div>
+      <div className="micro" style={{ marginBottom: 4 }}>{label}</div>
+      <select className="input" value={value || ""} onChange={e => onChange(e.target.value)}>
+        {!value && <option value="">— select —</option>}
+        {opts.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
 function ToggleRow({ label, sub, v, onChange }) {
   return (
     <div className="between" style={{ padding: "8px 0", borderTop: "1px solid rgb(var(--hairline))" }}>
@@ -744,6 +898,158 @@ function Field({ label, value, readOnly, mono }) {
     <div>
       <div className="micro" style={{ marginBottom: 4 }}>{label}</div>
       <input className={"input" + (mono ? " mono" : "")} defaultValue={value || ""} readOnly={readOnly} />
+    </div>
+  );
+}
+
+
+function AutodeskIdList({ rows, machines, D }) {
+  const [open, setOpen] = React.useState({});
+  const [tab, setTab] = React.useState({});            // per-row tab state
+  const toggle = (id) => setOpen(o => ({ ...o, [id]: !o[id] }));
+  const setRowTab = (id, t) => setTab(s => ({ ...s, [id]: t }));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {/* Header */}
+      <div style={{ display: "grid", gridTemplateColumns: "30px 1.4fr 1fr 1fr 140px 110px",
+                    padding: "8px 14px", borderBottom: "1px solid rgb(var(--hairline))",
+                    fontSize: 10.5, color: "rgb(var(--fg-muted))", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+        <div />
+        <div>Autodesk ID</div>
+        <div>Used by</div>
+        <div>Machines</div>
+        <div>Last seen</div>
+        <div>Status</div>
+      </div>
+      {rows.map(r => {
+        const isOpen = !!open[r.autodesk_id];
+        const activeTab = tab[r.autodesk_id] || "current";
+        const userNames = r.users.map(uid => D.byId(uid)).filter(Boolean);
+        const shared = r.users.length > 1;
+        // Find machines that match this Autodesk ID
+        const matchingMachines = machines.filter(m =>
+          (m.autodesk_user || "").toLowerCase() === r.autodesk_id.toLowerCase());
+
+        return (
+          <div key={r.autodesk_id} style={{ borderBottom: "1px solid rgb(var(--hairline))" }}>
+            <div onClick={() => toggle(r.autodesk_id)}
+                 className="row-hover"
+                 style={{ display: "grid", gridTemplateColumns: "30px 1.4fr 1fr 1fr 140px 110px",
+                          padding: "10px 14px", cursor: "pointer", alignItems: "center" }}>
+              <Icon name={isOpen ? "chevron-down" : "chevron-right"} size={13} color="rgb(var(--fg-muted))" />
+              <div className="mono" style={{ fontSize: 12, fontWeight: 500 }}>{r.autodesk_id}</div>
+              <div style={{ fontSize: 12 }}>{userNames.length ? userNames.map(u => u.name).join(", ") : <span className="muted">— unresolved —</span>}</div>
+              <div className="mono" style={{ fontSize: 11, color: "rgb(var(--fg-soft))" }}>
+                {r.machines.length ? r.machines.slice(0, 2).join(", ") + (r.machines.length > 2 ? " +" + (r.machines.length - 2) : "") : <span className="muted">—</span>}
+              </div>
+              <div className="muted tabular" style={{ fontSize: 11 }}>
+                {r.last_seen ? new Date(r.last_seen).toLocaleString("en-GB") : <span className="muted">never</span>}
+              </div>
+              <div>
+                {r.source === "directory"
+                  ? <Pill tone="neutral">From directory</Pill>
+                  : shared ? <Pill tone="warning">Shared · {r.users.length}</Pill> : <Pill tone="success">Observed</Pill>}
+              </div>
+            </div>
+
+            {isOpen && (
+              <div style={{ padding: "0 14px 16px 44px", background: "rgb(var(--bg-sunken) / 0.4)" }}>
+                {/* Tabs */}
+                <div className="seg" style={{ marginTop: 10, marginBottom: 12 }}>
+                  <button className={activeTab === "current"  ? "on" : ""} onClick={() => setRowTab(r.autodesk_id, "current")}>
+                    Currently using <span className="muted">· {matchingMachines.filter(m => m.online).length}</span>
+                  </button>
+                  <button className={activeTab === "sharing"  ? "on" : ""} onClick={() => setRowTab(r.autodesk_id, "sharing")}>
+                    Shared with <span className="muted">· {userNames.length}</span>
+                  </button>
+                  <button className={activeTab === "machines" ? "on" : ""} onClick={() => setRowTab(r.autodesk_id, "machines")}>
+                    Machines <span className="muted">· {matchingMachines.length}</span>
+                  </button>
+                </div>
+
+                {activeTab === "current" && (
+                  matchingMachines.filter(m => m.online).length === 0
+                    ? <div className="muted" style={{ fontSize: 12 }}>No one is signed into this Autodesk ID right now.</div>
+                    : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {matchingMachines.filter(m => m.online).map(m => {
+                          const p = m.person_id ? D.byId(m.person_id) : null;
+                          return (
+                            <div key={m.machine_id} className="center gap-3" style={{
+                              padding: "8px 10px", borderRadius: 10,
+                              border: "1px solid rgb(var(--success) / 0.25)",
+                              background: "rgb(var(--success) / 0.06)",
+                            }}>
+                              <Pill tone="success" dot>live</Pill>
+                              {p
+                                ? <><Avatar name={p.name} initials={p.initials} size={26} discipline={p.discipline} status={p.status} />
+                                    <div style={{ fontWeight: 600, fontSize: 12.5 }}>{p.name}</div></>
+                                : <div className="muted" style={{ fontSize: 12.5 }}>unmapped machine</div>}
+                              <div style={{ flex: 1 }} />
+                              <div className="mono muted" style={{ fontSize: 11 }}>{m.machine_id}</div>
+                              <div className="muted tabular" style={{ fontSize: 11 }}>{m.last_seen ? new Date(m.last_seen).toLocaleString("en-GB") : "—"}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                )}
+
+                {activeTab === "sharing" && (
+                  userNames.length === 0
+                    ? <div className="muted" style={{ fontSize: 12 }}>No staff resolved for this Autodesk ID yet.</div>
+                    : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
+                        {userNames.map(p => {
+                          // Last time we saw this person on this Autodesk ID, on any machine
+                          const ms = matchingMachines.filter(m => m.person_id === p.id);
+                          const last = ms.map(m => m.last_seen).filter(Boolean).sort().slice(-1)[0];
+                          return (
+                            <div key={p.id} className="center gap-3" style={{
+                              padding: "8px 10px", borderRadius: 10,
+                              border: "1px solid rgb(var(--hairline))",
+                              background: "rgb(var(--bg))",
+                            }}>
+                              <Avatar name={p.name} initials={p.initials} size={32} discipline={p.discipline} status={p.status} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div className="truncate" style={{ fontSize: 12.5, fontWeight: 600 }}>{p.name}</div>
+                                <div className="muted" style={{ fontSize: 10.5 }}>
+                                  {p.email && p.email.toLowerCase() !== r.autodesk_id.toLowerCase()
+                                    ? <>own: <span className="mono">{p.email}</span></>
+                                    : <>last seen: {last ? new Date(last).toLocaleString("en-GB") : "—"}</>}
+                                </div>
+                              </div>
+                              {p.status !== "offline" && <Pill tone="success" dot>online</Pill>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                )}
+
+                {activeTab === "machines" && (
+                  matchingMachines.length === 0
+                    ? <div className="muted" style={{ fontSize: 12 }}>No machine has reported this Autodesk ID. {r.source === "directory" && "Loaded from the staff directory only."}</div>
+                    : <table className="table" style={{ marginTop: 0 }}>
+                        <thead><tr><th>Machine</th><th>Host</th><th>Mapped to</th><th>Status</th><th className="tabular">Last seen</th></tr></thead>
+                        <tbody>
+                          {matchingMachines.map(m => {
+                            const p = m.person_id ? D.byId(m.person_id) : null;
+                            return (
+                              <tr key={m.machine_id}>
+                                <td className="mono" style={{ fontSize: 11.5 }}>{m.machine_id}</td>
+                                <td className="muted mono" style={{ fontSize: 11 }}>{m.host_name || "—"}</td>
+                                <td>{p ? p.name : <span className="muted">unmapped</span>}</td>
+                                <td>{m.online ? <Pill tone="success" dot>online</Pill> : <Pill tone="neutral">offline</Pill>}</td>
+                                <td className="muted tabular" style={{ fontSize: 11 }}>{m.last_seen ? new Date(m.last_seen).toLocaleString("en-GB") : "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
