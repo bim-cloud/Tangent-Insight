@@ -102,7 +102,8 @@
       rest("people","order=name"),
       rest("activity_events","order=occurred_at.desc&limit=200"),
       rest("attendance","work_date=eq."+today),
-      rest("agent_machines","select=machine_id,person_id,online,last_seen")
+      rest("agent_machines","select=machine_id,person_id,online,last_seen"),
+      rest("project_metrics","select=*")
     ]).then(function (res) {
       if (!(res[0].status==="fulfilled" && Array.isArray(res[0].value))) {
         ["people","projects","initialActivity","meetings","kpis","submissions","attendance","progressTrend","notifications"]
@@ -118,11 +119,26 @@
       var byId={}; att.forEach(function(a){byId[a.id]=a;});
       repl(D.attendance, people.map(function(p){
         var a = byId[p.id];
-        // Carry person fields onto each row so tables/details have name/dept/role/email
         return Object.assign({}, p, a || { id:p.id, inTime:"—", outTime:"—",
           breakMin:0, status:p.status==="offline"?"ABSENT":"ON_TIME", hours:p.hours, ot:p.ot });
       }));
-      var projects=deriveProjects(people); repl(D.projects,projects);
+      var projects=deriveProjects(people);
+      // Merge in real project_metrics from the Revit plugin
+      var metrics = (res[4].status==="fulfilled"?res[4].value:[]) || [];
+      var metricsByProject = {};
+      metrics.forEach(function(m){ metricsByProject[m.project] = m; });
+      projects.forEach(function(p){
+        var m = metricsByProject[p.code];
+        if (m) {
+          p.worksets     = m.worksets || 0;
+          p.openViews    = m.open_views || 0;
+          p.warnings     = m.warnings || 0;
+          p.linkedModels = m.linked_models || 0;
+          p.modelSize    = m.size_mb || 0;
+          p.version      = m.revit_version || p.version;
+        }
+      });
+      repl(D.projects,projects);
       repl(D.kpis,computeKpis(people,projects));
       repl(D.meetings,[]); repl(D.submissions,[]); repl(D.progressTrend,[]); repl(D.notifications,[]);
       buildHeatmap(acts);
