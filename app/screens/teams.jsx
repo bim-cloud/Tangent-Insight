@@ -1,87 +1,86 @@
 /* Tangent Insight — Microsoft Teams Activity Monitor */
 
-window.TeamsScreen = function TeamsScreen({ activity }) {
+window.TeamsScreen = function TeamsScreen({ activity, setRoute, setSelectedEmployee }) {
   const D = window.TI_DATA;
-  const live = D.meetings.filter(m => m.state === "live");
-  const ended = D.meetings.filter(m => m.state === "ended");
-  const upcoming = D.meetings.filter(m => m.state === "upcoming");
-
-  // Live counts derived from real data
   const acts = activity || D.initialActivity || [];
-  const inMeetingNow = D.people.filter(p => p.status === "meeting").length;
-  const teamsEvents24 = acts.filter(a => a.kind === "teams");
-  const callsToday = teamsEvents24.length;
-  // ~20 min average per teams event captured as a coarse estimate
-  const meetingHours = (teamsEvents24.length * 20 / 60).toFixed(1);
+
+  // ---- Real signals from live data ----
+  const inMeetingPeople = D.people.filter(p => p.status === "meeting");
+  const teamsEvents     = acts.filter(a => a.kind === "teams");
+  const callsToday      = teamsEvents.length;
+  const meetingHoursEst = (teamsEvents.length * 20 / 60).toFixed(1);  // ~20 min/event
+
+  // Presence donut from live people (replaces fake "42 / 28 / 9 / 1 / 4")
+  const presence = {
+    available: D.people.filter(p => p.status === "online").length,
+    inCall:    inMeetingPeople.length,
+    idle:      D.people.filter(p => p.status === "idle").length,
+    offline:   D.people.filter(p => p.status === "offline").length,
+    total:     D.people.length,
+  };
+
+  // Per-person teams-event counts (replaces fake "Top collaborators · 14.5h, 11.2h...")
+  const collabCounts = {};
+  teamsEvents.forEach(e => { if (e.user) collabCounts[e.user] = (collabCounts[e.user] || 0) + 1; });
+  const topCollabs = Object.keys(collabCounts)
+    .map(id => ({ p: D.byId(id), n: collabCounts[id] }))
+    .filter(r => r.p)
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 6);
 
   return (
     <PageShell>
-      {/* KPI strip — only metrics we can actually source */}
+      {/* KPI strip — only signals the agent can actually source */}
       <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-        <SmallKpi icon="users"          label="In meetings now" value={inMeetingNow} tone="info" />
-        <SmallKpi icon="phone"          label="Teams events · today" value={callsToday} tone="accent" />
-        <SmallKpi icon="clock"          label="Meeting time · est."  value={meetingHours + "h"} tone="accent" />
-        <SmallKpi icon="video"          label="Live meetings tracked" value={live.length} tone="success" />
+        <SmallKpi icon="users" label="In a Teams call · now" value={inMeetingPeople.length} tone="info" />
+        <SmallKpi icon="phone" label="Teams events · today" value={callsToday} tone="accent" />
+        <SmallKpi icon="clock" label="Meeting time · est." value={meetingHoursEst + "h"} tone="accent" />
+        <SmallKpi icon="user-check" label="Available now" value={presence.available} tone="success" />
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
-        {/* Live meetings — featured card */}
+        {/* LEFT: Who is in a Teams call right now (real, derived from people.status=meeting) */}
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="Live meetings · right now" subtitle={live.length + " tracked · " + inMeetingNow + " staff in meetings"} icon="video" live />
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {live.length
-              ? live.map(m => <LiveMeetingCard key={m.id} m={m} />)
-              : <div className="muted" style={{ fontSize: 12, padding: 12, textAlign: "center" }}>
-                  No live meeting roster — Teams meeting titles aren't captured by the agent. Staff currently in a Teams call: {inMeetingNow}.
-                </div>}
-          </div>
-
-          {/* Upcoming */}
-          <div className="micro" style={{ margin: "18px 0 8px" }}>Upcoming today</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {upcoming.map(m => {
-              const org = D.byId(m.organizer);
-              return (
-                <div key={m.id} className="row-hover" style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid rgb(var(--hairline))", display: "flex", alignItems: "center", gap: 12 }}>
-                  <div className="mono tabular" style={{ fontSize: 12, fontWeight: 600, color: "rgb(var(--fg-soft))", minWidth: 50 }}>{m.start}</div>
-                  <Icon name="video" size={13} color="rgb(var(--fg-muted))" />
+          <CardTitle title="In a Teams call · right now" subtitle={inMeetingPeople.length + " staff currently in a call"} icon="video" live />
+          {inMeetingPeople.length === 0 ? (
+            <div className="muted" style={{ fontSize: 12.5, padding: 14, textAlign: "center" }}>
+              No one is in a Teams call right now. As staff join calls their agent reports the meeting state and they appear here in real time.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {inMeetingPeople.map(p => (
+                <div key={p.id}
+                     className="row-hover click"
+                     onClick={() => { if (setSelectedEmployee) setSelectedEmployee(p.id); if (setRoute) setRoute("employees"); }}
+                     style={{ padding: "10px 12px", borderRadius: 12,
+                              border: "1px solid rgb(var(--accent-2) / 0.25)",
+                              background: "rgb(var(--accent-2) / 0.04)",
+                              display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
+                  <Avatar name={p.name} initials={p.initials} size={36} discipline={p.discipline} status={p.status} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="truncate" style={{ fontSize: 12.5, fontWeight: 600 }}>{m.title}</div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>{m.duration}m · {m.attendees} attendees · organized by {org?.name}</div>
-                  </div>
-                  <Pill tone="info">Upcoming</Pill>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Recently ended */}
-          <div className="micro" style={{ margin: "18px 0 8px" }}>Recently ended</div>
-          <table className="table">
-            <thead>
-              <tr><th>Meeting</th><th>Started</th><th className="tabular">Duration</th><th>Attendees</th><th>Project</th></tr>
-            </thead>
-            <tbody>
-              {ended.map(m => (
-                <tr key={m.id}>
-                  <td>
-                    <div className="center gap-2">
-                      <Icon name="video-off" size={12} color="rgb(var(--fg-muted))" />
-                      <span style={{ fontWeight: 500 }}>{m.title}</span>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 1 }}>
+                      {p.role} · <span className="mono">{p.project === "—" ? "no project" : p.project}</span>
                     </div>
-                  </td>
-                  <td className="mono tabular">{m.start}</td>
-                  <td className="tabular">{m.duration}m</td>
-                  <td><AvatarStack users={D.people.slice(0, m.attendees).map(u => u.id)} size={18} max={4} /></td>
-                  <td>{m.project === "—" ? <span className="muted">—</span> : <span className="code-pill">{m.project}</span>}</td>
-                </tr>
+                  </div>
+                  <Pill tone="info" dot>In a call</Pill>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          )}
+
+          {/* Recent Teams events feed (real) */}
+          <div className="micro" style={{ margin: "18px 0 8px" }}>Recent Teams events</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {teamsEvents.length === 0
+              ? <div className="muted" style={{ fontSize: 12, padding: 8 }}>No Teams events captured yet today.</div>
+              : teamsEvents.slice(0, 8).map(a => <window.FeedItem key={a.id} item={a} />)}
+          </div>
         </div>
 
-        {/* Right column — analytics */}
+        {/* RIGHT: charts that are computable from real data */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Events by day-of-week */}
           <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
             <CardTitle title="Teams events by day" subtitle="Last 7 days · from agent" icon="bar-chart-3" />
             <BarChart
@@ -89,7 +88,8 @@ window.TeamsScreen = function TeamsScreen({ activity }) {
               data={(() => {
                 const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
                 const counts = [0,0,0,0,0,0,0];
-                acts.filter(a => a.kind === "teams" && a.at).forEach(a => {
+                teamsEvents.forEach(a => {
+                  if (!a.at) return;
                   const dow = (new Date(a.at).getDay() + 6) % 7;
                   counts[dow]++;
                 });
@@ -99,50 +99,53 @@ window.TeamsScreen = function TeamsScreen({ activity }) {
             <div className="divider" style={{ margin: "10px 0" }} />
             <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
               <MiniMeta label="Events · today" value={callsToday} />
-              <MiniMeta label="In meeting now" value={inMeetingNow} />
-              <MiniMeta label="Live tracked"   value={live.length} />
+              <MiniMeta label="In call now"    value={inMeetingPeople.length} />
+              <MiniMeta label="People active"  value={topCollabs.length} />
             </div>
           </div>
 
-          {/* Top collaborators */}
+          {/* Top staff by Teams events (replaces hard-coded "14.5h / 11.2h" hours) */}
           <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-            <CardTitle title="Top collaborators · week" subtitle="By meeting hours" icon="award" />
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {D.people.slice(0, 6).map((p, i) => {
-                const hrs = [14.5, 11.2, 9.8, 8.4, 6.1, 5.2][i];
-                return (
-                  <div key={p.id} className="center gap-3" style={{ padding: "4px 0" }}>
+            <CardTitle title="Most Teams activity · feed window" subtitle="By events captured" icon="award" />
+            {topCollabs.length === 0 ? (
+              <div className="muted" style={{ fontSize: 12, padding: 8 }}>No Teams events from staff yet.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {topCollabs.map((r, i) => (
+                  <div key={r.p.id} className="center gap-3 row-hover click"
+                       onClick={() => { if (setSelectedEmployee) setSelectedEmployee(r.p.id); if (setRoute) setRoute("employees"); }}
+                       style={{ padding: "4px 6px", borderRadius: 8, cursor: "pointer" }}>
                     <div className="tabular" style={{ width: 16, fontSize: 11, fontWeight: 700, color: "rgb(var(--fg-muted))" }}>{i + 1}</div>
-                    <Avatar name={p.name} initials={p.initials} size={26} discipline={p.discipline} status={p.status} />
+                    <Avatar name={r.p.name} initials={r.p.initials} size={26} discipline={r.p.discipline} status={r.p.status} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="truncate" style={{ fontSize: 12.5, fontWeight: 600 }}>{p.name}</div>
-                      <div className="muted" style={{ fontSize: 10.5 }}>{p.role}</div>
+                      <div className="truncate" style={{ fontSize: 12.5, fontWeight: 600 }}>{r.p.name}</div>
+                      <div className="muted" style={{ fontSize: 10.5 }}>{r.p.role}</div>
                     </div>
-                    <div className="tabular" style={{ fontSize: 12, fontWeight: 600 }}>{hrs}h</div>
+                    <div className="tabular" style={{ fontSize: 12, fontWeight: 600 }}>{r.n} ev</div>
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Presence */}
+          {/* Presence distribution from real people */}
           <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-            <CardTitle title="Presence distribution" subtitle="Tangent firm · now" icon="circle-dot" />
+            <CardTitle title="Presence distribution" subtitle={"Tangent firm · " + presence.total + " staff"} icon="circle-dot" />
             <div className="center" style={{ justifyContent: "space-around", padding: "10px 0" }}>
               <Donut size={140} thickness={16}
-                centerLabel="42" label="TOTAL"
+                centerLabel={String(presence.total)} label="TOTAL"
                 data={[
-                  { value: 28, color: "rgb(var(--success))" },
-                  { value: 9,  color: "rgb(var(--accent-2))" },
-                  { value: 1,  color: "rgb(var(--warning))" },
-                  { value: 4,  color: "rgb(var(--fg-faint))" },
+                  { value: presence.available, color: "rgb(var(--success))" },
+                  { value: presence.inCall,    color: "rgb(var(--accent-2))" },
+                  { value: presence.idle,      color: "rgb(var(--warning))" },
+                  { value: presence.offline,   color: "rgb(var(--fg-faint))" },
                 ]}
               />
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <PresenceRow color="rgb(var(--success))"   label="Available" v={28} />
-                <PresenceRow color="rgb(var(--accent-2))" label="In a call"  v={9} />
-                <PresenceRow color="rgb(var(--warning))"  label="Away / idle" v={1} />
-                <PresenceRow color="rgb(var(--fg-faint))" label="Offline"     v={4} />
+                <PresenceRow color="rgb(var(--success))"   label="Available"   v={presence.available} />
+                <PresenceRow color="rgb(var(--accent-2))"  label="In a call"   v={presence.inCall} />
+                <PresenceRow color="rgb(var(--warning))"   label="Away / idle" v={presence.idle} />
+                <PresenceRow color="rgb(var(--fg-faint))"  label="Offline"     v={presence.offline} />
               </div>
             </div>
           </div>
