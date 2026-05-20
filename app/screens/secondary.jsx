@@ -297,119 +297,187 @@ window.NotificationsScreen = function NotificationsScreen() {
 /* ========== ADMIN ========== */
 window.AdminScreen = function AdminScreen() {
   const D = window.TI_DATA;
-  const roles = [
-    { name: "Administrator",    users: 2,  perms: ["Full system access", "Manage roles", "Export data", "API tokens"], tone: "danger" },
-    { name: "BIM Manager",      users: 3,  perms: ["View all projects", "Manage employees", "Export reports"], tone: "accent" },
-    { name: "Project Manager",  users: 4,  perms: ["View assigned projects", "Approve submissions"], tone: "info" },
-    { name: "BIM Coordinator",  users: 5,  perms: ["Monitor projects", "Run reports"], tone: "warning" },
-    { name: "Modeler/Detailer", users: 27, perms: ["Self-view only", "Submit timesheets"], tone: "muted" },
-  ];
+  const [machines, setMachines] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  // Pull the live agent_machines table (read-only via RLS)
+  React.useEffect(() => {
+    let cancelled = false;
+    function load() {
+      if (!window.TI_SUPABASE_REST) return;
+      window.TI_SUPABASE_REST("agent_machines", "select=*&order=last_seen.desc")
+        .then(rows => { if (!cancelled) { setMachines(Array.isArray(rows) ? rows : []); setLoading(false); } })
+        .catch(() => { if (!cancelled) setLoading(false); });
+    }
+    load();
+    const id = setInterval(load, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  const total      = D.people.length;
+  const withId     = machines.filter(m => m.autodesk_user).length;
+  const unmapped   = machines.filter(m => !m.person_id).length;
+  const onlineNow  = machines.filter(m => m.online).length;
+
+  // Pivot: one row per Autodesk ID, listing humans observed using it.
+  const byAutodeskId = {};
+  machines.forEach(m => {
+    if (!m.autodesk_user) return;
+    const k = m.autodesk_user.toLowerCase();
+    if (!byAutodeskId[k]) byAutodeskId[k] = { autodesk_id: m.autodesk_user, users: {}, machines: [], last_seen: m.last_seen };
+    if (m.person_id) byAutodeskId[k].users[m.person_id] = true;
+    byAutodeskId[k].machines.push(m.machine_id);
+    if (m.last_seen > byAutodeskId[k].last_seen) byAutodeskId[k].last_seen = m.last_seen;
+  });
+  const idTable = Object.values(byAutodeskId)
+    .map(r => ({ ...r, users: Object.keys(r.users) }))
+    .sort((a, b) => b.users.length - a.users.length || b.machines.length - a.machines.length);
+
   return (
     <PageShell>
+      {/* Live summary tiles */}
       <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
-        <SmallSummary icon="shield"     label="Roles defined" value="5" tone="accent" />
-        <SmallSummary icon="users"      label="Total users"   value="41" />
-        <SmallSummary icon="key"        label="API tokens"    value="6" tone="warning" />
-        <SmallSummary icon="shield-check" label="MFA enabled" value="100%" tone="success" />
+        <SmallSummary icon="users"      label="Staff in directory" value={total} />
+        <SmallSummary icon="laptop"     label="Workstations seen"  value={machines.length} />
+        <SmallSummary icon="radio"      label="Agents online now"  value={onlineNow} tone="success" />
+        <SmallSummary icon="alert-triangle" label="Unmapped machines" value={unmapped} tone={unmapped ? "warning" : "muted"} hint="need a directory entry" />
       </div>
 
-      {/* Autodesk ID Monitor — admin-only */}
-      <AutodeskIdMonitor />
+      {/* === Autodesk ID Manager === */}
+      <div className="surface" style={{ padding: 0, borderRadius: 18, overflow: "hidden" }}>
+        <div className="between" style={{ padding: "12px 14px", borderBottom: "1px solid rgb(var(--hairline))" }}>
+          <CardTitle title="Autodesk ID manager"
+                     subtitle={"Which Autodesk login is being used on which machine — observed live by the agent · " + idTable.length + " IDs in use"}
+                     icon="key-square" />
+          <div className="center gap-2">
+            <button className="btn btn-secondary btn-sm"
+                    onClick={() => exportCsv("autodesk-id-usage", idTable, ["autodesk_id","users","machines","last_seen"])}>
+              <Icon name="download" size={12} /> Export CSV
+            </button>
+          </div>
+        </div>
 
+        {/* Honest note about credentials */}
+        <div style={{ padding: "10px 14px", background: "rgb(var(--warning) / 0.06)",
+                      borderBottom: "1px solid rgb(var(--warning) / 0.18)", fontSize: 11.5, color: "rgb(var(--fg-soft))" }}>
+          <Icon name="shield-alert" size={12} color="rgb(var(--warning))" /> &nbsp;
+          <b>Passwords are not stored here.</b> Tangent Insight only records which Autodesk login was observed
+          on each machine; for the actual credentials use a proper secret manager (1Password / Bitwarden /
+          Azure Key Vault). Storing passwords in this database — accessible via the browser anon key — would
+          be a real security risk and a likely violation of Autodesk's subscription terms.
+        </div>
+
+        {loading
+          ? <div className="muted" style={{ padding: 16, fontSize: 12, textAlign: "center" }}>Loading agent data…</div>
+          : idTable.length === 0
+            ? <div className="muted" style={{ padding: 16, fontSize: 12, textAlign: "center" }}>No Autodesk logins captured yet. Run the agent on a workstation that is signed into Autodesk and they will appear here.</div>
+            : (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Autodesk ID (email)</th>
+                    <th>Used by (humans)</th>
+                    <th>Machines</th>
+                    <th className="tabular">Last seen</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {idTable.map(r => {
+                    const shared = r.users.length > 1;
+                    return (
+                      <tr key={r.autodesk_id}>
+                        <td className="mono" style={{ fontSize: 12 }}>{r.autodesk_id}</td>
+                        <td>
+                          {r.users.length === 0
+                            ? <span className="muted">— unresolved —</span>
+                            : <div className="center gap-2" style={{ flexWrap: "wrap" }}>
+                                {r.users.map(uid => {
+                                  const p = D.byId(uid);
+                                  return p
+                                    ? <span key={uid} className="center gap-2" style={{ background: "rgb(var(--bg-sunken))", borderRadius: 999, padding: "2px 8px 2px 2px" }}>
+                                        <Avatar name={p.name} initials={p.initials} size={20} discipline={p.discipline} status={p.status} />
+                                        <span style={{ fontSize: 11.5 }}>{p.name}</span>
+                                      </span>
+                                    : <span key={uid} className="mono muted" style={{ fontSize: 11 }}>{uid}</span>;
+                                })}
+                              </div>}
+                        </td>
+                        <td className="mono" style={{ fontSize: 11 }}>{r.machines.slice(0, 3).join(", ")}{r.machines.length > 3 ? " +" + (r.machines.length - 3) : ""}</td>
+                        <td className="muted tabular" style={{ fontSize: 11 }}>{r.last_seen ? new Date(r.last_seen).toLocaleString("en-GB") : "—"}</td>
+                        <td>{shared ? <Pill tone="warning">Shared · {r.users.length}</Pill> : <Pill tone="success">Personal</Pill>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+      </div>
+
+      {/* Machine -> person mapping (the second table the user asked for) */}
+      <div className="surface" style={{ padding: 0, borderRadius: 18, overflow: "hidden" }}>
+        <div className="between" style={{ padding: "12px 14px", borderBottom: "1px solid rgb(var(--hairline))" }}>
+          <CardTitle title="Workstations" subtitle="Machine → human → Autodesk ID, observed live" icon="laptop" />
+          <button className="btn btn-secondary btn-sm"
+                  onClick={() => exportCsv("workstations", machines, ["machine_id","host_name","person_id","autodesk_user","online","last_seen"])}>
+            <Icon name="download" size={12} /> Export CSV
+          </button>
+        </div>
+        {machines.length === 0
+          ? <div className="muted" style={{ padding: 16, fontSize: 12, textAlign: "center" }}>No agents have reported yet.</div>
+          : (
+            <table className="table">
+              <thead>
+                <tr><th>Machine</th><th>Host</th><th>Person</th><th>Autodesk ID</th><th>Status</th><th className="tabular">Last seen</th></tr>
+              </thead>
+              <tbody>
+                {machines.map(m => {
+                  const p = m.person_id ? D.byId(m.person_id) : null;
+                  return (
+                    <tr key={m.machine_id}>
+                      <td className="mono" style={{ fontSize: 12 }}>{m.machine_id}</td>
+                      <td className="muted mono" style={{ fontSize: 11 }}>{m.host_name || "—"}</td>
+                      <td>{p
+                        ? <div className="center gap-2"><Avatar name={p.name} initials={p.initials} size={22} discipline={p.discipline} status={p.status} /><span style={{ fontSize: 12.5 }}>{p.name}</span></div>
+                        : <Pill tone="warning">unmapped</Pill>}</td>
+                      <td className="mono" style={{ fontSize: 11 }}>{m.autodesk_user || "—"}</td>
+                      <td>{m.online ? <Pill tone="success" dot>online</Pill> : <Pill tone="neutral">offline</Pill>}</td>
+                      <td className="muted tabular" style={{ fontSize: 11 }}>{m.last_seen ? new Date(m.last_seen).toLocaleString("en-GB") : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+      </div>
+
+      {/* Useful, actually-true admin info: directory health */}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <div className="between" style={{ marginBottom: 12 }}>
-            <CardTitle title="Roles & permissions" subtitle="Role-based access control" icon="shield" />
-            <button className="btn btn-secondary btn-sm"><Icon name="plus" size={11} /> New role</button>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {roles.map(r => (
-              <div key={r.name} className="row-hover" style={{ padding: 12, borderRadius: 12, border: "1px solid rgb(var(--hairline))" }}>
-                <div className="between" style={{ marginBottom: 6 }}>
-                  <div className="center gap-2">
-                    <Pill tone={r.tone}>{r.name}</Pill>
-                    <span className="muted" style={{ fontSize: 11 }}>{r.users} users</span>
-                  </div>
-                  <div className="center gap-1">
-                    <button className="btn btn-ghost btn-icon"><Icon name="pencil" size={12} /></button>
-                    <button className="btn btn-ghost btn-icon"><Icon name="more-horizontal" size={12} /></button>
-                  </div>
-                </div>
-                <div className="center gap-2" style={{ flexWrap: "wrap" }}>
-                  {r.perms.map(p => (
-                    <span key={p} className="pill pill-neutral" style={{ fontSize: 10 }}>{p}</span>
-                  ))}
-                </div>
+          <CardTitle title="Directory health" subtitle="People rows by mapping completeness" icon="user-check" />
+          {(() => {
+            const noUsername = D.people.filter(p => !p.username).length;
+            const noEmail    = D.people.filter(p => !p.email).length;
+            const everSeen   = new Set(machines.map(m => m.person_id).filter(Boolean));
+            const neverSeen  = D.people.filter(p => !everSeen.has(p.id)).length;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <DirectoryRow label="Without Windows account (username)" v={noUsername} total={total} tone="danger" hint="auto-resolution will fail for these" />
+                <DirectoryRow label="Without Autodesk email"             v={noEmail}    total={total} tone="warning" />
+                <DirectoryRow label="Never seen by an agent yet"         v={neverSeen}  total={total} tone="muted" hint="agent not yet installed / not signed in" />
               </div>
-            ))}
-          </div>
+            );
+          })()}
         </div>
 
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <div className="between" style={{ marginBottom: 12 }}>
-            <CardTitle title="Recent admin actions" subtitle="Last 24h · audit log" icon="scroll-text" />
-            <button className="btn btn-ghost btn-sm">View all</button>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {[
-              { user: D.byId("u01"), action: "granted BIM Manager role to",    target: "Olesya Petrova",  time: "2h ago", kind: "shield" },
-              { user: D.byId("u01"), action: "exported",                       target: "Weekly Attendance · XLSX", time: "3h ago", kind: "download" },
-              { user: D.byId("u10"), action: "revoked API token",              target: "ci-integration-04", time: "5h ago", kind: "key" },
-              { user: D.byId("u01"), action: "updated retention policy to",    target: "180 days", time: "Yesterday", kind: "settings-2" },
-              { user: D.byId("u01"), action: "added integration",              target: "BIM 360 · Tangent DXB", time: "2 days", kind: "plug-zap" },
-              { user: D.byId("u10"), action: "deactivated user",               target: "Anonymous (machine TLA-021)", time: "3 days", kind: "user-x" },
-            ].map((a, i) => (
-              <div key={i} className="row-hover" style={{ padding: "8px 10px", borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
-                <Icon name={a.kind} size={14} color="rgb(var(--fg-muted))" />
-                <Avatar name={a.user.name} initials={a.user.initials} size={20} discipline={a.user.discipline} status="online" />
-                <div style={{ flex: 1, minWidth: 0, fontSize: 12 }}>
-                  <span style={{ fontWeight: 600 }}>{a.user.name}</span>
-                  <span className="muted"> {a.action} </span>
-                  <span style={{ fontWeight: 500 }}>{a.target}</span>
-                </div>
-                <span className="muted tabular" style={{ fontSize: 10.5 }}>{a.time}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-        <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="Integrations" icon="plug-zap" />
-          {[
-            { name: "Microsoft Teams",    state: "Connected", tone: "success", time: "OAuth · 30d" },
-            { name: "Autodesk BIM 360",   state: "Connected", tone: "success", time: "API key" },
-            { name: "Outlook calendars",  state: "Connected", tone: "success", time: "OAuth" },
-            { name: "Power BI export",    state: "Available", tone: "neutral", time: "—" },
-            { name: "Slack",              state: "Disabled",  tone: "neutral", time: "—" },
-          ].map(i => (
-            <div key={i.name} className="between" style={{ padding: "8px 0", borderTop: "1px solid rgb(var(--hairline))" }}>
-              <div>
-                <div style={{ fontSize: 12.5, fontWeight: 600 }}>{i.name}</div>
-                <div className="muted" style={{ fontSize: 10.5 }}>{i.time}</div>
-              </div>
-              <Pill tone={i.tone} dot={i.tone === "success"}>{i.state}</Pill>
-            </div>
-          ))}
-        </div>
-        <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="Security" icon="shield-check" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <ToggleRow label="Multi-factor auth" sub="Required for all admins" on={true} />
-            <ToggleRow label="Single sign-on (Azure AD)" sub="Tangent.ae tenant" on={true} />
-            <ToggleRow label="IP allowlist" sub="2 ranges defined" on={true} />
-            <ToggleRow label="Session timeout" sub="30 min idle" on={true} />
-            <ToggleRow label="API access logs" sub="90-day retention" on={true} />
-          </div>
-        </div>
-        <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="Data retention" icon="database" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <RetentionRow label="Activity events" days="180" current={68} />
-            <RetentionRow label="Teams metadata" days="365" current={24} />
-            <RetentionRow label="Exported reports" days="730" current={12} />
-            <RetentionRow label="Audit logs" days="2555" current={4} note="7 years · regulatory" />
+          <CardTitle title="Security model" subtitle="What this dashboard actually enforces" icon="shield-check" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12, lineHeight: 1.55 }}>
+            <SecurityRow ok>Supabase Row-Level Security on every table — anon key cannot write to workforce data</SecurityRow>
+            <SecurityRow ok>Agent firehose <span className="mono">agent_samples</span> is insert-only · not readable from the browser</SecurityRow>
+            <SecurityRow ok>Identity resolved server-side from Windows account (unique per human) — not from shared Autodesk IDs</SecurityRow>
+            <SecurityRow warn>Sign-in to the dashboard is enforced when Supabase Auth is enabled (see Settings → Authentication)</SecurityRow>
+            <SecurityRow warn>Production hosting should keep Vercel Deployment Protection on, or front the site with an SSO proxy</SecurityRow>
           </div>
         </div>
       </div>
@@ -417,42 +485,43 @@ window.AdminScreen = function AdminScreen() {
   );
 };
 
-function ToggleRow({ label, sub, on }) {
-  const [v, setV] = React.useState(on);
-  return (
-    <div className="between">
-      <div>
-        <div style={{ fontSize: 12.5, fontWeight: 600 }}>{label}</div>
-        <div className="muted" style={{ fontSize: 10.5 }}>{sub}</div>
-      </div>
-      <button onClick={() => setV(!v)} style={{
-        width: 32, height: 18, borderRadius: 9999,
-        background: v ? "rgb(var(--accent))" : "rgb(var(--border-strong))",
-        border: "none", cursor: "pointer", position: "relative", transition: "all 0.2s",
-      }}>
-        <span style={{
-          position: "absolute", top: 2, left: v ? 16 : 2,
-          height: 14, width: 14, borderRadius: 9999, background: "white", transition: "all 0.2s",
-          boxShadow: "0 1px 3px rgb(0 0 0 / 0.2)",
-        }} />
-      </button>
-    </div>
-  );
-}
-
-function RetentionRow({ label, days, current, note }) {
+function DirectoryRow({ label, v, total, tone, hint }) {
+  const pct = total ? Math.round((v / total) * 100) : 0;
+  const c = tone === "danger" ? "rgb(var(--danger))" : tone === "warning" ? "rgb(var(--warning))" : "rgb(var(--fg-faint))";
   return (
     <div>
       <div className="between" style={{ marginBottom: 4 }}>
         <div style={{ fontSize: 12, fontWeight: 600 }}>{label}</div>
-        <div className="tabular muted" style={{ fontSize: 11 }}>{days} days</div>
+        <div className="tabular muted" style={{ fontSize: 11 }}>{v} / {total}</div>
       </div>
       <div className="progress" style={{ height: 4 }}>
-        <i style={{ width: `${current}%` }} />
+        <i style={{ width: `${pct}%`, background: c }} />
       </div>
-      <div className="muted" style={{ fontSize: 10.5, marginTop: 3 }}>{note || `Currently storing ${current}% of cap`}</div>
+      {hint && <div className="muted" style={{ fontSize: 10.5, marginTop: 3 }}>{hint}</div>}
     </div>
   );
+}
+
+function SecurityRow({ ok, warn, children }) {
+  return (
+    <div className="center gap-2" style={{ alignItems: "flex-start" }}>
+      <Icon name={ok ? "check-circle" : "alert-triangle"} size={13}
+            color={ok ? "rgb(var(--success))" : "rgb(var(--warning))"} style={{ marginTop: 2 }} />
+      <div>{children}</div>
+    </div>
+  );
+}
+
+// Tiny CSV exporter so the Export buttons actually work
+function exportCsv(name, rows, fields) {
+  if (!rows || !rows.length) return;
+  const esc = v => `"${String(v == null ? "" : Array.isArray(v) ? v.join("; ") : v).replace(/"/g, '""')}"`;
+  const csv = [fields.join(","), ...rows.map(r => fields.map(f => esc(r[f])).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name + "-" + new Date().toISOString().slice(0,10) + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
 }
 
 /* ========== SETTINGS ========== */

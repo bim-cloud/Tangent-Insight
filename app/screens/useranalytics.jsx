@@ -93,7 +93,7 @@ window.UserAnalyticsScreen = function UserAnalyticsScreen({ activity }) {
             <div>
               <div className="micro" style={{ textAlign: "right" }}>Productivity score</div>
               <div className="tabular" style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1, color: score > 80 ? "rgb(var(--success))" : score > 60 ? "rgb(var(--accent))" : "rgb(var(--warning))" }}>{score}</div>
-              <div className="muted" style={{ fontSize: 11, textAlign: "right" }}>of 100 · Top 18% this week</div>
+              <div className="muted" style={{ fontSize: 11, textAlign: "right" }}>focus ÷ (focus + idle)</div>
             </div>
             <Donut
               size={88} thickness={10}
@@ -335,8 +335,10 @@ function Stat3({ icon, label, value }) {
 /* Hour timeline (stacked horizontal bars per hour, 08–20) */
 function HourTimeline({ events, focusMinNow, idleMinNow }) {
   const hours = ["08","09","10","11","12","13","14","15","16","17","18","19"];
-  // Bin events by hour-of-day (Asia/Dubai is the agent's local TZ; browser local is acceptable here)
-  const bins = hours.map(() => ({ revit: 0, teams: 0, idle: 0, other: 0 }));
+  const now = new Date();
+  const nowHour = now.getHours();   // local hour 0-23
+  // Bin events by hour-of-day
+  const bins = hours.map(() => ({ revit: 0, teams: 0, idle: 0, other: 0, tracked: false }));
   let firstAt = null, lastAt = null;
   (events || []).forEach(e => {
     if (!e.at) return;
@@ -345,33 +347,52 @@ function HourTimeline({ events, focusMinNow, idleMinNow }) {
     if (!lastAt  || dt > lastAt)  lastAt = dt;
     const h = dt.getHours() - 8;
     if (h < 0 || h > 11) return;
+    bins[h].tracked = true;
     if (e.kind === "teams") bins[h].teams += 10;       // ~10 min per teams event
     else if (e.kind === "warning" || e.kind === "error") bins[h].other += 4;
     else bins[h].revit += 4;                            // 4 min per Revit event
   });
-  // Cap each bin at 60 min total without altering relative proportions
+  // Cap each bin at 60 min total; do NOT synthesize idle for empty hours
   bins.forEach(b => {
     const sum = b.revit + b.teams + b.other;
     if (sum > 60) { const k = 60 / sum; b.revit *= k; b.teams *= k; b.other *= k; }
-    b.idle = Math.max(0, 60 - b.revit - b.teams - b.other - (sum === 0 ? 60 : 0));
   });
+  // Mark hours that haven't happened yet (after current local hour)
+  const futureFrom = nowHour - 8 + 1;   // first index that is in the future
+
   const colors = ["rgb(var(--accent))","rgb(var(--accent-2))","rgb(var(--warning))","rgb(var(--fg-faint))"];
   const labels = ["Revit","Teams","Idle","Other"];
   const fmt = (d) => d ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—";
-  const totalMin = bins.reduce((a, b) => a + b.revit + b.teams + b.other, 0);
 
   return (
     <div style={{ marginTop: 6 }}>
       <div style={{ display: "grid", gridTemplateColumns: "40px repeat(12, 1fr)", gap: 4, alignItems: "center" }}>
         <div />
-        {hours.map(h => <div key={h} className="muted tabular" style={{ fontSize: 10, textAlign: "center" }}>{h}:00</div>)}
+        {hours.map((h, i) => (
+          <div key={h} className="muted tabular" style={{ fontSize: 10, textAlign: "center",
+                  opacity: i >= futureFrom ? 0.4 : 1 }}>{h}:00</div>
+        ))}
         <div className="micro" style={{ textAlign: "right", paddingRight: 4 }}>MIN</div>
         {bins.map((b, i) => {
+          const isFuture = i >= futureFrom;
+          const isCurrent = (i + 8) === nowHour;
           const order = [["revit", b.revit], ["teams", b.teams], ["idle", b.idle], ["other", b.other]];
           return (
             <React.Fragment key={i}>
-              <div style={{ position: "relative", height: 38, background: "rgb(var(--bg-sunken))", borderRadius: 6, overflow: "hidden", display: "flex", flexDirection: "column-reverse" }}>
-                {order.map(([key, v], j) => (
+              <div title={isFuture
+                          ? `${hours[i]}:00 · upcoming`
+                          : (b.tracked ? `${hours[i]}:00 · ${Math.round(b.revit+b.teams+b.other)}m tracked` : `${hours[i]}:00 · no activity recorded`)}
+                   style={{
+                     position: "relative", height: 38,
+                     background: isFuture
+                       ? "repeating-linear-gradient(45deg, transparent 0 4px, rgb(var(--fg-faint) / 0.10) 4px 8px)"
+                       : "rgb(var(--bg-sunken))",
+                     border: isCurrent ? "1px solid rgb(var(--accent))" : "1px solid transparent",
+                     borderRadius: 6, overflow: "hidden",
+                     display: "flex", flexDirection: "column-reverse",
+                     opacity: isFuture ? 0.55 : 1,
+                   }}>
+                {!isFuture && order.map(([key, v], j) => (
                   <div key={key} title={`${labels[j]} · ${Math.round(v)}m`} style={{
                     height: `${(v / 60) * 100}%`, background: colors[j], width: "100%",
                   }} />
