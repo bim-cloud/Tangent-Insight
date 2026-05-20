@@ -30,18 +30,23 @@ const ROUTE_META = {
 
 const ACCENT_HEX = { cyan: "#00AEEF", indigo: "#6366F1", emerald: "#10B981", violet: "#8B5CF6" };
 
-function App() {
-  // Auth gate
-  const [authSession, setAuthSession] = useState(() =>
+// Root: handles auth-gate and mounting. Keeping this separate is REQUIRED —
+// React's Rules of Hooks forbid conditional returns between hook calls. Doing
+// `if (!session) return <Login/>` inside App after one useState but before
+// the others meant the hook count changed on sign-in and the post-login
+// render crashed silently (white screen until reload).
+function Root() {
+  const [session, setSession] = useState(() =>
     (window.TI_AUTH && window.TI_AUTH.getSession && window.TI_AUTH.getSession()) || null);
   useEffect(() => {
     if (!window.TI_AUTH) return;
-    return window.TI_AUTH.onChange(setAuthSession);
+    return window.TI_AUTH.onChange(setSession);
   }, []);
-  if (window.TI_AUTH && !authSession) {
-    return <window.LoginScreen />;
-  }
+  if (window.TI_AUTH && !session) return <window.LoginScreen />;
+  return <App authSession={session} />;
+}
 
+function App({ authSession }) {
   const [tw, setTweak] = window.useTweaks(TWEAK_DEFAULTS);
   const [route, setRoute] = useState(() => localStorage.getItem("ti-route") || "dashboard");
   const [search, setSearch] = useState("");
@@ -196,4 +201,4 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
