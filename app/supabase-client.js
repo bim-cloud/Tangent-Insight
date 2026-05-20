@@ -135,5 +135,7 @@
 
   D.agentFleet = { total:0, online:0, offline:0 };
   window.TI_REFRESH = load;          // main.jsx polls this
+  window.TI_SUPABASE_REST = rest;    // expose for other screens
+  window.TI_SUPABASE = { url: SUPABASE_URL, anon: SUPABASE_ANON };
   load();
 })();

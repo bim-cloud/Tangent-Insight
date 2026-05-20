@@ -31,6 +31,17 @@ const ROUTE_META = {
 const ACCENT_HEX = { cyan: "#00AEEF", indigo: "#6366F1", emerald: "#10B981", violet: "#8B5CF6" };
 
 function App() {
+  // Auth gate
+  const [authSession, setAuthSession] = useState(() =>
+    (window.TI_AUTH && window.TI_AUTH.getSession && window.TI_AUTH.getSession()) || null);
+  useEffect(() => {
+    if (!window.TI_AUTH) return;
+    return window.TI_AUTH.onChange(setAuthSession);
+  }, []);
+  if (window.TI_AUTH && !authSession) {
+    return <window.LoginScreen />;
+  }
+
   const [tw, setTweak] = window.useTweaks(TWEAK_DEFAULTS);
   const [route, setRoute] = useState(() => localStorage.getItem("ti-route") || "dashboard");
   const [search, setSearch] = useState("");
@@ -101,12 +112,17 @@ function App() {
     if (route !== "employees") setSelectedEmployee(null);
   }, [route]);
 
-  const user = {
-    name: "Operations",
-    initials: "OP",
-    role: "Tangent Insight · Dubai",
-    discipline: "MANAGER",
-  };
+  // Derive identity from the signed-in user, fallback to a neutral default
+  const authEmail = authSession && authSession.user && authSession.user.email;
+  const linkedPerson = authEmail
+    ? (window.TI_DATA.people || []).find(p => (p.email || "").toLowerCase() === authEmail.toLowerCase())
+    : null;
+  const inits = (s) => String(s || "").trim().split(/\s+/).slice(0, 2).map(x => x[0] || "").join("").toUpperCase() || "OP";
+  const user = linkedPerson
+    ? { name: linkedPerson.name, initials: linkedPerson.initials, role: linkedPerson.role + " · " + linkedPerson.dept, discipline: linkedPerson.discipline, email: linkedPerson.email }
+    : authEmail
+        ? { name: authEmail.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, c => c.toUpperCase()), initials: inits(authEmail.split("@")[0]), role: "Tangent Insight · Dubai", discipline: "MANAGER", email: authEmail }
+        : { name: "Operations", initials: "OP", role: "Tangent Insight · Dubai", discipline: "MANAGER" };
 
   const meta = ROUTE_META[route] || ROUTE_META.dashboard;
 

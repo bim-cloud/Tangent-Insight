@@ -107,7 +107,8 @@ window.Sidebar = function Sidebar({ route, setRoute, user, sidebarMode }) {
             </div>
           )}
           {!compact && (
-            <button className="btn btn-ghost btn-icon" title="Sign out">
+            <button className="btn btn-ghost btn-icon" title="Sign out"
+                    onClick={() => { if (window.TI_AUTH) window.TI_AUTH.signOut(); }}>
               <Icon name="log-out" size={14} />
             </button>
           )}
