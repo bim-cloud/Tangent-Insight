@@ -28,7 +28,8 @@
     return { id:r.id, name:r.name, initials:r.initials||inits(r.name), role:r.role||"Staff",
       discipline:r.discipline||"UNASSIGNED", dept:r.dept||"Unassigned", status:r.status||"offline",
       project:r.project||"—", version:r.version||"—", focusMin:num(r.focus_min), idleMin:num(r.idle_min),
-      hours:num(r.hours), ot:num(r.ot), utilization:num(r.utilization), machine:r.machine||"—" };
+      hours:num(r.hours), ot:num(r.ot), utilization:num(r.utilization),
+      machine:r.machine||"—", email:r.email||"", username:r.username||"" };
   }
   function mapEvent(r, i) {
     return { id:r.id||i, kind:r.kind||"open", user:r.user_id, project:r.project||"—",
@@ -114,8 +115,12 @@
       var acts=(res[1].status==="fulfilled"?res[1].value:[]).map(mapEvent); repl(D.initialActivity,acts);
       var att=(res[2].status==="fulfilled"?res[2].value:[]).map(mapAtt);
       var byId={}; att.forEach(function(a){byId[a.id]=a;});
-      repl(D.attendance, people.map(function(p){ return byId[p.id]||{id:p.id,inTime:"—",outTime:"—",
-        breakMin:0,status:p.status==="offline"?"ABSENT":"ON_TIME",hours:p.hours,ot:p.ot}; }));
+      repl(D.attendance, people.map(function(p){
+        var a = byId[p.id];
+        // Carry person fields onto each row so tables/details have name/dept/role/email
+        return Object.assign({}, p, a || { id:p.id, inTime:"—", outTime:"—",
+          breakMin:0, status:p.status==="offline"?"ABSENT":"ON_TIME", hours:p.hours, ot:p.ot });
+      }));
       var projects=deriveProjects(people); repl(D.projects,projects);
       repl(D.kpis,computeKpis(people,projects));
       repl(D.meetings,[]); repl(D.submissions,[]); repl(D.progressTrend,[]); repl(D.notifications,[]);
