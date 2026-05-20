@@ -29,7 +29,8 @@
       discipline:r.discipline||"UNASSIGNED", dept:r.dept||"Unassigned", status:r.status||"offline",
       project:r.project||"—", version:r.version||"—", focusMin:num(r.focus_min), idleMin:num(r.idle_min),
       hours:num(r.hours), ot:num(r.ot), utilization:num(r.utilization),
-      machine:r.machine||"—", email:r.email||"", username:r.username||"" };
+      machine:r.machine||"—", email:r.email||"", username:r.username||"",
+      is_admin: !!r.is_admin };
   }
   function mapEvent(r, i) {
     return { id:r.id||i, kind:r.kind||"open", user:r.user_id, project:r.project||"—",
