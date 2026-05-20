@@ -24,11 +24,12 @@ window.LiveScreen = function LiveScreen({ activity, setRoute }) {
   });
 
   // group by minute bucket
-  const lastMin = Date.now();
-  const rateData = Array.from({ length: 30 }).map((_, i) => {
-    const inBucket = activity.filter(a => a.t >= i && a.t < i + 1).length;
-    return inBucket + Math.sin(i * 0.7) + 1.5;
-  }).reverse();
+  const rateData = Array.from({ length: 30 }).map((_, i) =>
+    activity.filter(a => a.t >= i && a.t < i + 1).length
+  ).reverse();
+  const peakRate = Math.max(1, ...rateData);
+  const avgRate  = Math.round(rateData.reduce((a, b) => a + b, 0) / rateData.length * 10) / 10;
+  const fleet = (window.TI_DATA && window.TI_DATA.agentFleet) || { total: 0, online: 0 };
 
   // event-kind counts for sidebar
   const countByKind = {};
@@ -48,10 +49,10 @@ window.LiveScreen = function LiveScreen({ activity, setRoute }) {
               <LiveDot /> LIVE FEED · streaming
             </div>
             <h1 className="h1" style={{ marginTop: 6 }}>
-              <span className="tabular gradient-text"><Counter value={activity.length * 8} /></span> events <span className="muted" style={{ fontSize: 14, fontWeight: 500 }}>captured in the last hour</span>
+              <span className="tabular gradient-text"><Counter value={activity.length} /></span> events <span className="muted" style={{ fontSize: 14, fontWeight: 500 }}>captured · most recent 200</span>
             </h1>
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              Realtime Revit · Teams · System feed across 8 active projects and 16 workstations
+              Realtime Revit · Teams · System feed across {D.projects.length} active documents and {fleet.online}/{fleet.total} agents
             </div>
           </div>
           <div className="center gap-3">
@@ -67,12 +68,12 @@ window.LiveScreen = function LiveScreen({ activity, setRoute }) {
         <div style={{ position: "relative", marginTop: 18 }}>
           <div className="between" style={{ marginBottom: 6 }}>
             <span className="micro">Event rate · 30 min window</span>
-            <span className="muted tabular" style={{ fontSize: 11 }}>peak 18/min · avg 11/min</span>
+            <span className="muted tabular" style={{ fontSize: 11 }}>peak {peakRate}/min · avg {avgRate}/min</span>
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 56 }}>
             {rateData.map((v, i) => (
               <div key={i} style={{
-                flex: 1, height: `${Math.min(100, (v / 4) * 100)}%`,
+                flex: 1, height: `${(v / peakRate) * 100}%`,
                 background: i === rateData.length - 1 ? "rgb(var(--accent))" : "rgb(var(--accent) / 0.4)",
                 borderRadius: 2, minHeight: 4,
                 transition: "height 0.3s",
@@ -143,29 +144,40 @@ window.LiveScreen = function LiveScreen({ activity, setRoute }) {
 
         {/* Side widgets */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {/* Alerts */}
+          {/* Alerts (derived from live data — stale projects + idle staff) */}
           <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 16 }}>
             <CardTitle title="Active alerts" subtitle="Requires attention" icon="alert-octagon" />
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {[
-                { tone: "danger", title: "Jeddah Corniche · 14m stale sync", time: "2m", project: "JEDDAH08" },
-                { tone: "warning", title: "DXBHILLS03 · 24 new clashes", time: "11m", project: "DXBHILLS03" },
-                { tone: "warning", title: "Hiroshi T. · idle 38m on DXBHILLS03", time: "32m", project: "DXBHILLS03" },
-                { tone: "danger", title: "NEOM01 · linked model missing", time: "16m", project: "NEOM01" },
-              ].map((a, i) => (
-                <div key={i} className="row-hover" style={{
-                  padding: "8px 10px", borderRadius: 10,
-                  borderLeft: `2px solid rgb(var(--${a.tone}))`,
-                  background: `rgb(var(--${a.tone}) / 0.04)`,
-                  display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer",
-                }}>
-                  <Icon name={a.tone === "danger" ? "alert-octagon" : "alert-triangle"} size={14} color={`rgb(var(--${a.tone}))`} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>{a.title}</div>
-                    <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}><span className="mono">{a.project}</span> · {a.time} ago</div>
+              {(() => {
+                const idleStaff = D.people.filter(p => p.status === "idle" && p.idleMin >= 30)
+                  .slice(0, 4)
+                  .map(p => ({ tone: "warning", title: p.name + " · idle " + p.idleMin + "m", time: p.idleMin + "m", project: p.project }));
+                const errEvents = (D.initialActivity || []).filter(a => a.kind === "error" || a.kind === "warning")
+                  .slice(0, 4)
+                  .map(a => {
+                    const u = D.byId && D.byId(a.user);
+                    return { tone: a.kind === "error" ? "danger" : "warning",
+                             title: (u ? u.name : "System") + " · " + a.detail,
+                             time: a.t < 1 ? "now" : a.t + "m",
+                             project: a.project };
+                  });
+                const alerts = [...errEvents, ...idleStaff].slice(0, 4);
+                if (!alerts.length) return <div className="muted" style={{ fontSize: 12, padding: 8 }}>No alerts — all clear.</div>;
+                return alerts.map((a, i) => (
+                  <div key={i} className="row-hover" style={{
+                    padding: "8px 10px", borderRadius: 10,
+                    borderLeft: `2px solid rgb(var(--${a.tone}))`,
+                    background: `rgb(var(--${a.tone}) / 0.04)`,
+                    display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer",
+                  }}>
+                    <Icon name={a.tone === "danger" ? "alert-octagon" : "alert-triangle"} size={14} color={`rgb(var(--${a.tone}))`} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{a.title}</div>
+                      <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}><span className="mono">{a.project}</span> · {a.time}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
           </div>
 
@@ -193,28 +205,35 @@ window.LiveScreen = function LiveScreen({ activity, setRoute }) {
             </div>
           </div>
 
-          {/* Event distribution */}
+          {/* Event distribution (from real counts) */}
           <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 16 }}>
-            <CardTitle title="Distribution · 1h" icon="pie-chart" />
+            <CardTitle title="Distribution · feed" icon="pie-chart" />
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {[
-                { l: "Syncs",    v: 64, c: "rgb(var(--accent))" },
-                { l: "Saves",    v: 88, c: "rgb(var(--success))" },
-                { l: "Opens",    v: 24, c: "rgb(var(--info))" },
-                { l: "Clashes",  v: 12, c: "rgb(var(--danger))" },
-                { l: "Warnings", v: 22, c: "rgb(var(--warning))" },
-                { l: "Teams",    v: 18, c: "rgb(var(--accent-2))" },
-              ].map(r => (
-                <div key={r.l}>
-                  <div className="between" style={{ fontSize: 11.5, marginBottom: 3 }}>
-                    <span className="center gap-2"><span className="dot" style={{ background: r.c }} />{r.l}</span>
-                    <span className="tabular muted">{r.v}</span>
+              {(() => {
+                const rows = [
+                  { l: "Syncs",    k: "sync",    c: "rgb(var(--accent))" },
+                  { l: "Saves",    k: "save",    c: "rgb(var(--success))" },
+                  { l: "Opens",    k: "open",    c: "rgb(var(--info))" },
+                  { l: "Logins",   k: "login",   c: "rgb(var(--success))" },
+                  { l: "Clashes",  k: "clash",   c: "rgb(var(--danger))" },
+                  { l: "Warnings", k: "warning", c: "rgb(var(--warning))" },
+                  { l: "Errors",   k: "error",   c: "rgb(var(--danger))" },
+                  { l: "Teams",    k: "teams",   c: "rgb(var(--accent-2))" },
+                ].map(r => ({ ...r, v: countByKind[r.k] || 0 })).filter(r => r.v > 0);
+                const max = Math.max(1, ...rows.map(r => r.v));
+                if (!rows.length) return <div className="muted" style={{ fontSize: 12, padding: 8 }}>No events yet.</div>;
+                return rows.map(r => (
+                  <div key={r.l}>
+                    <div className="between" style={{ fontSize: 11.5, marginBottom: 3 }}>
+                      <span className="center gap-2"><span className="dot" style={{ background: r.c }} />{r.l}</span>
+                      <span className="tabular muted">{r.v}</span>
+                    </div>
+                    <div className="progress" style={{ height: 4 }}>
+                      <i style={{ width: `${(r.v / max) * 100}%`, background: r.c }} />
+                    </div>
                   </div>
-                  <div className="progress" style={{ height: 4 }}>
-                    <i style={{ width: `${(r.v / 100) * 100}%`, background: r.c }} />
-                  </div>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
           </div>
         </div>

@@ -18,16 +18,27 @@ window.EmployeesScreen = function EmployeesScreen({ selectedEmployee, setSelecte
 
   const sel = selectedEmployee ? D.byId(selectedEmployee) : null;
 
+  // Live KPIs
+  const totalP   = D.people.length;
+  const onlineP  = D.people.filter(p => p.status === "online").length;
+  const idleP    = D.people.filter(p => p.status === "idle").length;
+  const meetingP = D.people.filter(p => p.status === "meeting").length;
+  const activeForAvg = D.people.filter(p => p.status !== "offline");
+  const avgUtil  = activeForAvg.length ? Math.round(activeForAvg.reduce((a, p) => a + p.utilization, 0) / activeForAvg.length) : 0;
+  const avgHours = activeForAvg.length ? (activeForAvg.reduce((a, p) => a + p.hours, 0) / activeForAvg.length).toFixed(1) : "0.0";
+  const sumOt    = D.people.reduce((a, p) => a + p.ot, 0).toFixed(1);
+  const deptCount = new Set(D.people.map(p => p.dept || "Unassigned")).size;
+
   return (
     <PageShell>
       {/* Summary tiles */}
       <div className="grid" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
-        <SummTile icon="users"        label="Total" value="16" hint="Across 5 depts" />
-        <SummTile icon="check-circle" label="Online"  value="13" tone="success" hint="81% headcount" />
-        <SummTile icon="moon"         label="Idle"    value="1"  tone="warning" hint="> 30m idle" />
-        <SummTile icon="video"        label="In call" value="2"  tone="info" hint="Teams" />
-        <SummTile icon="timer"        label="Avg utilization" value="82%" tone="accent" />
-        <SummTile icon="clock"        label="Avg hours today" value="5.8" tone="muted" hint="+ 0.6 OT" />
+        <SummTile icon="users"        label="Total" value={totalP} hint={`Across ${deptCount} depts`} />
+        <SummTile icon="check-circle" label="Online"  value={onlineP} tone="success" hint={totalP ? Math.round(onlineP/totalP*100)+"% headcount" : ""} />
+        <SummTile icon="moon"         label="Idle"    value={idleP} tone="warning" hint="> 15m idle" />
+        <SummTile icon="video"        label="In call" value={meetingP} tone="info" hint="Teams" />
+        <SummTile icon="timer"        label="Avg utilization" value={avgUtil + "%"} tone="accent" />
+        <SummTile icon="clock"        label="Avg hours today" value={avgHours} tone="muted" hint={"+ " + sumOt + " OT"} />
       </div>
 
       {/* Filter bar */}
@@ -163,9 +174,12 @@ function SummTile({ icon, label, value, tone, hint }) {
 function EmployeeDetail({ emp, onClose, activity }) {
   const D = window.TI_DATA;
   const userActivity = activity.filter(a => a.user === emp.id).slice(0, 10);
-  // synthetic week hours
-  const weekHours = [emp.hours - 1.4, emp.hours - 0.7, emp.hours + 0.3, emp.hours, emp.hours, 0, 0].map(h => Math.max(0, h));
-  const days = ["Mon","Tue","Wed","Thu","Today","Sat","Sun"];
+
+  // Real breakdown of tracked time today: focus + idle, plus a meetings estimate
+  const meetingsMin = userActivity.filter(a => a.kind === "teams").length * 20; // ~20 min/event
+  const focusMin = emp.focusMin || 0;
+  const idleMin  = emp.idleMin  || 0;
+  const otherMin = Math.max(0, Math.round(emp.hours * 60) - focusMin - idleMin - meetingsMin);
 
   return (
     <div className="surface" style={{ padding: 0, borderRadius: 18, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "85vh", position: "sticky", top: 92 }}>
@@ -181,7 +195,7 @@ function EmployeeDetail({ emp, onClose, activity }) {
                 <span className={`tag tag-${emp.discipline.toLowerCase()}`}>{emp.discipline}</span>
                 {emp.status === "online"  && <Pill tone="success" dot>Online</Pill>}
                 {emp.status === "meeting" && <Pill tone="warning" dot>In meeting</Pill>}
-                {emp.status === "idle"    && <Pill tone="warning">Idle 35m</Pill>}
+                {emp.status === "idle"    && <Pill tone="warning">Idle {emp.idleMin}m</Pill>}
                 {emp.status === "offline" && <Pill tone="neutral">Offline</Pill>}
               </div>
             </div>
@@ -196,13 +210,13 @@ function EmployeeDetail({ emp, onClose, activity }) {
         <div className="grid" style={{ gridTemplateColumns: "repeat(2,1fr)", gap: 6, marginTop: 12 }}>
           <FactRow icon="laptop" label="Workstation" value={emp.machine} />
           <FactRow icon="folder" label="Project" value={emp.project === "—" ? "—" : `${emp.project} · ${emp.version}`} />
-          <FactRow icon="mail" label="Email" value={`${emp.initials.toLowerCase()}@tangent.ae`} mono />
-          <FactRow icon="map-pin" label="Office" value="Tangent · Dubai HQ" />
+          <FactRow icon="mail" label="Email" value={emp.email || "—"} mono />
+          <FactRow icon="user" label="AD account" value={emp.username || "—"} mono />
         </div>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>
-        {/* Daily breakdown ring */}
+        {/* Today's time breakdown (real) */}
         <div className="surface-flat" style={{ padding: 12, borderRadius: 12 }}>
           <div className="between" style={{ marginBottom: 10 }}>
             <span className="micro">Today's time breakdown</span>
@@ -212,19 +226,17 @@ function EmployeeDetail({ emp, onClose, activity }) {
             <Donut size={120} thickness={14}
                    centerLabel={`${emp.utilization}`} label="UTIL %"
                    data={[
-                     { value: emp.focusMin, color: "rgb(var(--accent))" },
-                     { value: 80,          color: "rgb(var(--accent-2))" },
-                     { value: emp.idleMin, color: "rgb(var(--warning))" },
-                     { value: 40,          color: "rgb(var(--success))" },
-                     { value: 60,          color: "rgb(var(--fg-faint))" },
+                     { value: focusMin,    color: "rgb(var(--accent))" },
+                     { value: meetingsMin, color: "rgb(var(--accent-2))" },
+                     { value: idleMin,     color: "rgb(var(--warning))" },
+                     { value: otherMin,    color: "rgb(var(--fg-faint))" },
                    ]} />
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {[
-                { c: "rgb(var(--accent))",    l: "Revit focus",   v: `${emp.focusMin}m` },
-                { c: "rgb(var(--accent-2))",  l: "Meetings",      v: "1h 20m" },
-                { c: "rgb(var(--warning))",   l: "Idle",          v: `${emp.idleMin}m` },
-                { c: "rgb(var(--success))",   l: "Other apps",    v: "42m" },
-                { c: "rgb(var(--fg-faint))",  l: "Break",         v: "30m" },
+                { c: "rgb(var(--accent))",    l: "Revit focus", v: `${focusMin}m` },
+                { c: "rgb(var(--accent-2))",  l: "Meetings",    v: `${meetingsMin}m` },
+                { c: "rgb(var(--warning))",   l: "Idle",        v: `${idleMin}m` },
+                { c: "rgb(var(--fg-faint))",  l: "Other apps",  v: `${otherMin}m` },
               ].map(r => (
                 <div key={r.l} className="between" style={{ fontSize: 11.5 }}>
                   <span className="center gap-2"><span className="dot" style={{ background: r.c }} />{r.l}</span>
@@ -235,47 +247,13 @@ function EmployeeDetail({ emp, onClose, activity }) {
           </div>
         </div>
 
-        {/* Hours this week */}
-        <div className="surface-flat" style={{ padding: 12, borderRadius: 12 }}>
-          <div className="between" style={{ marginBottom: 10 }}>
-            <span className="micro">Hours · this week</span>
-            <span className="tabular muted" style={{ fontSize: 11 }}>Total {weekHours.reduce((a,b)=>a+b,0).toFixed(1)}h · OT +{emp.ot.toFixed(1)}h</span>
-          </div>
-          <WeekBars data={weekHours} days={days} />
-        </div>
-
-        {/* Login history */}
-        <div>
-          <div className="micro" style={{ marginBottom: 8 }}>Recent sessions</div>
-          <table className="table">
-            <thead>
-              <tr><th>Day</th><th>In</th><th>Out</th><th className="tabular">Total</th><th className="tabular">OT</th></tr>
-            </thead>
-            <tbody>
-              {[
-                { d: "Today",       i: "08:05", o: "—",     h: emp.hours.toFixed(1), ot: emp.ot.toFixed(1), live: true },
-                { d: "Yesterday",   i: "08:12", o: "18:24", h: "9.2", ot: "1.2" },
-                { d: "Mon May 17",  i: "08:30", o: "17:48", h: "8.3", ot: "0.3" },
-                { d: "Sun May 16",  i: "08:08", o: "18:10", h: "9.0", ot: "1.0" },
-                { d: "Sat May 15",  i: "—",     o: "—",     h: "0.0", ot: "0.0" },
-              ].map((r, i) => (
-                <tr key={i}>
-                  <td>{r.d}</td>
-                  <td className="mono tabular">{r.i}</td>
-                  <td className="mono tabular">{r.live ? <Pill tone="success" dot>Live</Pill> : r.o}</td>
-                  <td className="tabular" style={{ fontWeight: 600 }}>{r.h}h</td>
-                  <td className="tabular" style={{ color: parseFloat(r.ot) > 0 ? "rgb(var(--warning))" : "rgb(var(--fg-faint))" }}>{r.ot}h</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Recent activity */}
+        {/* Recent activity (real) */}
         <div>
           <div className="micro" style={{ marginBottom: 8 }}>Recent activity</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {(userActivity.length ? userActivity : activity.slice(0,5)).map(a => <window.FeedItem key={a.id} item={a} />)}
+            {userActivity.length
+              ? userActivity.map(a => <window.FeedItem key={a.id} item={a} />)
+              : <div className="muted" style={{ fontSize: 12, padding: 8 }}>No activity captured yet for this person.</div>}
           </div>
         </div>
       </div>

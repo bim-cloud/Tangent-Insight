@@ -16,16 +16,27 @@ window.RevitScreen = function RevitScreen({ selectedProject, setSelectedProject,
 
   const sel = selectedProject ? D.byCode(selectedProject) : null;
 
+  // Live KPIs derived from real data
+  const totalProjects   = D.projects.length;
+  const activeProjects  = D.projects.filter(p => p.activeUsers > 0).length;
+  const criticalProjects= D.projects.filter(p => p.health === "CRITICAL").length;
+  const modelersActive  = D.people.filter(p => p.status !== "offline" &&
+                            (p.discipline === "MODELER" || p.discipline === "DETAILER")).length;
+  const syncsLastHr     = (D.initialActivity || []).filter(a => a.kind === "sync" && a.t <= 60).length;
+  const totalModelMB    = D.projects.reduce((a, p) => a + (Number(p.modelSize) || 0), 0);
+  const totalModel      = totalModelMB >= 1024 ? (totalModelMB / 1024).toFixed(1) : String(totalModelMB);
+  const totalModelUnit  = totalModelMB >= 1024 ? "GB" : "MB";
+
   return (
     <PageShell>
       {/* Summary strip */}
       <div className="grid" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
-        <StatTile icon="folder-kanban"  label="Total projects"  value="12" tone="accent" />
-        <StatTile icon="zap"            label="Active now"      value="8"  tone="success" delta="+1" />
-        <StatTile icon="alert-octagon"  label="Critical"        value="1"  tone="danger"  delta="0" />
-        <StatTile icon="users"          label="Modelers active" value="22" tone="info" />
-        <StatTile icon="refresh-cw"     label="Syncs · last hr" value="64" tone="accent" delta="+18" />
-        <StatTile icon="hard-drive"     label="Total model"     value="2.4" suffix="GB" tone="muted" />
+        <StatTile icon="folder-kanban"  label="Total projects"  value={totalProjects} tone="accent" />
+        <StatTile icon="zap"            label="Active now"      value={activeProjects}  tone="success" />
+        <StatTile icon="alert-octagon"  label="Critical"        value={criticalProjects}  tone="danger" />
+        <StatTile icon="users"          label="Modelers active" value={modelersActive} tone="info" />
+        <StatTile icon="refresh-cw"     label="Syncs · last hr" value={syncsLastHr} tone="accent" />
+        <StatTile icon="hard-drive"     label="Total model"     value={totalModel} suffix={totalModelUnit} tone="muted" />
       </div>
 
       {/* Filter bar */}
@@ -36,7 +47,7 @@ window.RevitScreen = function RevitScreen({ selectedProject, setSelectedProject,
                  value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="seg">
-          <button className={filter === "all" ? "on" : ""} onClick={() => setFilter("all")}>All <span className="muted">· 8</span></button>
+          <button className={filter === "all" ? "on" : ""} onClick={() => setFilter("all")}>All <span className="muted">· {D.projects.length}</span></button>
           <button className={filter === "active" ? "on" : ""} onClick={() => setFilter("active")}>Active</button>
           <button className={filter === "critical" ? "on" : ""} onClick={() => setFilter("critical")}>Critical</button>
           <button className={filter === "delay" ? "on" : ""} onClick={() => setFilter("delay")}>Delayed</button>

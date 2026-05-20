@@ -4,19 +4,30 @@
 window.AttendanceScreen = function AttendanceScreen() {
   const D = window.TI_DATA;
   const [view, setView] = React.useState("today");
+  const today = new Date();
+  const todayLabel = today.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const checkedIn = D.attendance.filter(a => a.inTime && a.inTime !== "—").length;
   const stats = {
     onTime: D.attendance.filter(a => a.status === "ON_TIME").length,
     late:   D.attendance.filter(a => a.status === "LATE").length,
     absent: D.attendance.filter(a => a.status === "ABSENT").length,
   };
+  // Real avg arrival from in-times
+  const mins = D.attendance.map(a => /^\d{1,2}:\d{2}$/.test(a.inTime||"")
+                    ? Number(a.inTime.split(":")[0]) * 60 + Number(a.inTime.split(":")[1])
+                    : null).filter(v => v != null);
+  const avgArrival = mins.length
+    ? (String(Math.floor(Math.round(mins.reduce((a,b)=>a+b,0)/mins.length)/60)).padStart(2,"0") + ":" +
+       String(Math.round(mins.reduce((a,b)=>a+b,0)/mins.length)%60).padStart(2,"0"))
+    : "—";
   return (
     <PageShell>
       <div className="grid" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
         <SmallSummary icon="users"        label="Headcount"    value={D.people.length} tone="muted" />
-        <SmallSummary icon="check-circle" label="On time"      value={stats.onTime} tone="success" delta={`${Math.round(stats.onTime/D.people.length*100)}%`} />
+        <SmallSummary icon="check-circle" label="On time"      value={stats.onTime} tone="success" delta={D.people.length ? `${Math.round(stats.onTime/D.people.length*100)}%` : ""} />
         <SmallSummary icon="alarm-clock"  label="Late"         value={stats.late} tone="warning" />
         <SmallSummary icon="user-minus"   label="Absent"       value={stats.absent} tone="danger" />
-        <SmallSummary icon="clock"        label="Avg arrival"  value="08:32" tone="accent" />
+        <SmallSummary icon="clock"        label="Avg arrival"  value={avgArrival} tone="accent" />
       </div>
 
       <div className="surface-flat" style={{ padding: 10, display: "flex", alignItems: "center", gap: 10, borderRadius: 14 }}>
@@ -26,7 +37,7 @@ window.AttendanceScreen = function AttendanceScreen() {
           ))}
         </div>
         <div className="vdiv" style={{ height: 22 }} />
-        <button className="btn btn-secondary btn-sm"><Icon name="calendar" size={12} /> May 19, 2026</button>
+        <button className="btn btn-secondary btn-sm"><Icon name="calendar" size={12} /> {todayLabel}</button>
         <button className="btn btn-secondary btn-sm"><Icon name="filter" size={12} /> All departments</button>
         <div style={{ flex: 1 }} />
         <button className="btn btn-secondary btn-sm"><Icon name="download" size={12} /> Export</button>
@@ -36,7 +47,7 @@ window.AttendanceScreen = function AttendanceScreen() {
         {/* Attendance table */}
         <div className="surface" style={{ padding: 0, borderRadius: 18, overflow: "hidden" }}>
           <div className="between" style={{ padding: "12px 14px", borderBottom: "1px solid rgb(var(--hairline))" }}>
-            <CardTitle title="Today's attendance" subtitle="May 19, 2026 · 14 of 16 checked in" icon="calendar-check" />
+            <CardTitle title="Today's attendance" subtitle={`${todayLabel} · ${checkedIn} of ${D.people.length} checked in`} icon="calendar-check" />
           </div>
           <table className="table">
             <thead>
@@ -56,7 +67,7 @@ window.AttendanceScreen = function AttendanceScreen() {
                   </td>
                   <td className="muted">{a.dept}</td>
                   <td className="mono tabular" style={{ color: a.status === "LATE" ? "rgb(var(--warning))" : undefined, fontWeight: a.status === "LATE" ? 600 : undefined }}>{a.inTime}</td>
-                  <td className="mono tabular">{a.status === "ABSENT" ? "—" : <Pill tone="success" dot>Live</Pill>}</td>
+                  <td className="mono tabular">{a.status === "ABSENT" ? "—" : (a.status === "online" || a.status === "meeting" || a.outTime === "—") ? <Pill tone="success" dot>Live</Pill> : a.outTime}</td>
                   <td>
                     {a.status === "ON_TIME" && <Pill tone="success">On time</Pill>}
                     {a.status === "LATE"    && <Pill tone="warning">Late · {a.inTime}</Pill>}
@@ -73,13 +84,13 @@ window.AttendanceScreen = function AttendanceScreen() {
 
         {/* Calendar mini */}
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="May 2026" subtitle="Daily attendance heatmap" icon="calendar" />
-          <CalendarGrid />
+          <CardTitle title={today.toLocaleDateString("en-GB", { month: "long", year: "numeric" })} subtitle="Daily attendance heatmap · today highlighted" icon="calendar" />
+          <CalendarGrid today={today} />
           <div className="divider" style={{ margin: "12px 0" }} />
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <Stat2 icon="trending-up" label="Best day"   value="Tue May 14"   sub="16/16 on time" />
-            <Stat2 icon="trending-down" label="Worst day" value="Sun May 17"  sub="3 late · 2 absent" tone="warning" />
-            <Stat2 icon="timer"        label="Avg week hours" value="38.4h"   sub="+ 4.2h OT" />
+            <Stat2 icon="check-circle" label="On time today" value={stats.onTime} sub={`${stats.late} late · ${stats.absent} absent`} />
+            <Stat2 icon="clock"        label="Avg arrival"   value={avgArrival}   sub="from today's check-ins" />
+            <Stat2 icon="timer"        label="Hours today"   value={D.attendance.reduce((a,b)=>a+(Number(b.hours)||0),0).toFixed(1) + "h"} sub={"+ " + D.attendance.reduce((a,b)=>a+(Number(b.ot)||0),0).toFixed(1) + "h OT"} />
           </div>
         </div>
       </div>
@@ -87,29 +98,43 @@ window.AttendanceScreen = function AttendanceScreen() {
   );
 };
 
-function CalendarGrid() {
-  const days = Array.from({ length: 31 }).map((_, i) => i + 1);
+function CalendarGrid({ today }) {
+  const t = today || new Date();
+  const y = t.getFullYear(), m = t.getMonth();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  // Monday-first leading blanks: JS Sunday=0..Saturday=6 -> shift so Monday=0
+  const firstDow = (new Date(y, m, 1).getDay() + 6) % 7;
+  const todayD = t.getDate();
+  // Hash that's stable across renders so intensities don't reshuffle every refresh
+  const hash = (d) => {
+    let h = 2166136261;
+    const s = y + "-" + m + "-" + d;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 16777619) >>> 0; }
+    return (h % 1000) / 1000;
+  };
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
         {["Mo","Tu","We","Th","Fr","Sa","Su"].map(d => (
           <div key={d} className="micro" style={{ fontSize: 9.5, textAlign: "center", padding: 2 }}>{d}</div>
         ))}
-        {Array.from({ length: 4 }).map((_, i) => <div key={"e"+i} />)}
-        {days.map(d => {
-          const isToday = d === 19;
-          const future = d > 19;
-          const weekend = (d + 3) % 7 === 0 || (d + 3) % 7 === 6;
-          const intensity = future ? 0 : weekend ? 0.15 : 0.45 + Math.random() * 0.5;
+        {Array.from({ length: firstDow }).map((_, i) => <div key={"e"+i} />)}
+        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
+          const isToday = d === todayD;
+          const future = d > todayD;
+          const dow = (new Date(y, m, d).getDay() + 6) % 7;
+          const weekend = dow >= 5;
+          const intensity = future ? 0 : weekend ? 0.12 : 0.40 + hash(d) * 0.45;
           return (
-            <div key={d} title={`May ${d}`} style={{
-              aspectRatio: "1", borderRadius: 6,
-              background: future ? "rgb(var(--bg-sunken) / 0.4)" : `rgb(var(--accent) / ${intensity})`,
-              border: isToday ? "2px solid rgb(var(--accent))" : "1px solid rgb(var(--border) / 0.5)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 10, fontWeight: isToday ? 700 : 500,
-              color: isToday ? "rgb(var(--accent))" : intensity > 0.5 ? "white" : "rgb(var(--fg-muted))",
-            }}>{d}</div>
+            <div key={d} title={new Date(y, m, d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+                 style={{
+                   aspectRatio: "1", borderRadius: 6,
+                   background: future ? "rgb(var(--bg-sunken) / 0.4)" : `rgb(var(--accent) / ${intensity})`,
+                   border: isToday ? "2px solid rgb(var(--accent))" : "1px solid rgb(var(--border) / 0.5)",
+                   display: "flex", alignItems: "center", justifyContent: "center",
+                   fontSize: 10, fontWeight: isToday ? 700 : 500,
+                   color: isToday ? "rgb(var(--accent))" : intensity > 0.5 ? "white" : "rgb(var(--fg-muted))",
+                 }}>{d}</div>
           );
         })}
       </div>

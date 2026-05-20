@@ -1,29 +1,39 @@
 /* Tangent Insight — Microsoft Teams Activity Monitor */
 
-window.TeamsScreen = function TeamsScreen() {
+window.TeamsScreen = function TeamsScreen({ activity }) {
   const D = window.TI_DATA;
   const live = D.meetings.filter(m => m.state === "live");
   const ended = D.meetings.filter(m => m.state === "ended");
   const upcoming = D.meetings.filter(m => m.state === "upcoming");
 
+  // Live counts derived from real data
+  const acts = activity || D.initialActivity || [];
+  const inMeetingNow = D.people.filter(p => p.status === "meeting").length;
+  const teamsEvents24 = acts.filter(a => a.kind === "teams");
+  const callsToday = teamsEvents24.length;
+  // ~20 min average per teams event captured as a coarse estimate
+  const meetingHours = (teamsEvents24.length * 20 / 60).toFixed(1);
+
   return (
     <PageShell>
-      {/* KPI strip */}
-      <div className="grid" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
-        <SmallKpi icon="video"       label="Live meetings"     value={live.length} tone="success" />
-        <SmallKpi icon="users"       label="In meetings now"   value="13" tone="info" />
-        <SmallKpi icon="phone"       label="Calls today"       value="42" delta="+8" />
-        <SmallKpi icon="clock"       label="Meeting hours"     value="38.4" tone="accent" />
-        <SmallKpi icon="message-square" label="Chat messages"  value="612" tone="muted" />
-        <SmallKpi icon="screen-share" label="Screen shares"    value="18" delta="+3" tone="warning" />
+      {/* KPI strip — only metrics we can actually source */}
+      <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+        <SmallKpi icon="users"          label="In meetings now" value={inMeetingNow} tone="info" />
+        <SmallKpi icon="phone"          label="Teams events · today" value={callsToday} tone="accent" />
+        <SmallKpi icon="clock"          label="Meeting time · est."  value={meetingHours + "h"} tone="accent" />
+        <SmallKpi icon="video"          label="Live meetings tracked" value={live.length} tone="success" />
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
         {/* Live meetings — featured card */}
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="Live meetings · right now" subtitle="2 calls in progress · 13 attendees" icon="video" live />
+          <CardTitle title="Live meetings · right now" subtitle={live.length + " tracked · " + inMeetingNow + " staff in meetings"} icon="video" live />
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {live.map(m => <LiveMeetingCard key={m.id} m={m} />)}
+            {live.length
+              ? live.map(m => <LiveMeetingCard key={m.id} m={m} />)
+              : <div className="muted" style={{ fontSize: 12, padding: 12, textAlign: "center" }}>
+                  No live meeting roster — Teams meeting titles aren't captured by the agent. Staff currently in a Teams call: {inMeetingNow}.
+                </div>}
           </div>
 
           {/* Upcoming */}
@@ -73,24 +83,24 @@ window.TeamsScreen = function TeamsScreen() {
         {/* Right column — analytics */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-            <CardTitle title="Meeting hours by day" subtitle="Last 7 days" icon="bar-chart-3" />
+            <CardTitle title="Teams events by day" subtitle="Last 7 days · from agent" icon="bar-chart-3" />
             <BarChart
               height={170}
-              data={[
-                { name: "Mon", a: 24, b: 22 },
-                { name: "Tue", a: 24, b: 19 },
-                { name: "Wed", a: 24, b: 28 },
-                { name: "Thu", a: 24, b: 31 },
-                { name: "Fri", a: 24, b: 25 },
-                { name: "Sat", a: 24, b: 4  },
-                { name: "Sun", a: 24, b: 2  },
-              ]}
+              data={(() => {
+                const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+                const counts = [0,0,0,0,0,0,0];
+                acts.filter(a => a.kind === "teams" && a.at).forEach(a => {
+                  const dow = (new Date(a.at).getDay() + 6) % 7;
+                  counts[dow]++;
+                });
+                return labels.map((n, i) => ({ name: n, a: counts[i], b: counts[i] }));
+              })()}
             />
             <div className="divider" style={{ margin: "10px 0" }} />
             <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-              <MiniMeta label="Total / week" value="131h" />
-              <MiniMeta label="Avg / call"   value="32m" />
-              <MiniMeta label="Top day"      value="Thu" />
+              <MiniMeta label="Events · today" value={callsToday} />
+              <MiniMeta label="In meeting now" value={inMeetingNow} />
+              <MiniMeta label="Live tracked"   value={live.length} />
             </div>
           </div>
 

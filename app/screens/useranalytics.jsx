@@ -4,28 +4,35 @@
 
 window.UserAnalyticsScreen = function UserAnalyticsScreen({ activity }) {
   const D = window.TI_DATA;
-  const [userId, setUserId] = React.useState(D.people[0].id);
+  const [userId, setUserId] = React.useState(D.people[0]?.id || "");
   const [range, setRange] = React.useState("today");
+  React.useEffect(() => {
+    if (!userId && D.people[0]) setUserId(D.people[0].id);
+  }, [D.people.length]);
   const u = D.byId(userId);
+  if (!u) {
+    return <PageShell><div className="surface muted" style={{ padding: 24, borderRadius: 18, textAlign: "center" }}>No staff loaded yet.</div></PageShell>;
+  }
 
-  // Synthetic per-user metrics
-  const score = Math.round(u.utilization * 0.6 + (u.focusMin / 180) * 25 + (u.ot > 0 ? 8 : 4));
+  // Real per-user metrics from the live data
+  const score = Math.min(100, Math.round(
+    (u.focusMin + u.idleMin) ? (u.focusMin / (u.focusMin + u.idleMin)) * 100 : u.utilization
+  ));
+  const userActs = (activity || []).filter(a => a.user === u.id);
   const revitActions = {
-    opens:    Math.floor(Math.random() * 4 + 2),
-    saves:    Math.floor(u.focusMin / 18) + 2,
-    syncs:    Math.floor(u.focusMin / 25) + 1,
-    publishes:Math.floor(Math.random() * 2),
-    exports:  Math.floor(Math.random() * 3),
-    clashes:  Math.floor(Math.random() * 8),
-    warnings: Math.floor(Math.random() * 12),
+    opens:    userActs.filter(a => a.kind === "open").length,
+    saves:    userActs.filter(a => a.kind === "save").length,
+    syncs:    userActs.filter(a => a.kind === "sync").length,
+    publishes:userActs.filter(a => a.kind === "publish").length,
+    logins:   userActs.filter(a => a.kind === "login").length,
+    clashes:  userActs.filter(a => a.kind === "clash").length,
+    warnings: userActs.filter(a => a.kind === "warning").length,
+    teams:    userActs.filter(a => a.kind === "teams").length,
   };
   const totalActions = Object.values(revitActions).reduce((a, b) => a + b, 0);
-  const projectsByHours = [
-    { code: u.project,            hours: u.hours * 0.7,  color: "rgb(var(--accent))" },
-    { code: "SAADIYAT07",         hours: u.hours * 0.18, color: "#A78BFA" },
-    { code: "DXBHILLS03",         hours: u.hours * 0.08, color: "#10B981" },
-    { code: "Internal",           hours: u.hours * 0.04, color: "#64748B" },
-  ].filter(p => p.code !== "—" && p.hours > 0);
+  const projectsByHours = u.project && u.project !== "—"
+    ? [{ code: u.project, hours: u.hours, color: "rgb(var(--accent))" }]
+    : [];
 
   return (
     <PageShell>
@@ -108,7 +115,7 @@ window.UserAnalyticsScreen = function UserAnalyticsScreen({ activity }) {
           live
           right={<div className="seg"><button className="on">Stacked</button><button>Heatmap</button></div>}
         />
-        <HourTimeline />
+        <HourTimeline events={userActs} idleMinNow={u.idleMin} focusMinNow={u.focusMin} />
         <div className="center gap-4 muted" style={{ fontSize: 11, marginTop: 10, justifyContent: "center" }}>
           <LegendDot c="rgb(var(--accent))"   l="Revit focus" />
           <LegendDot c="rgb(var(--accent-2))" l="Teams / meetings" />
@@ -157,7 +164,7 @@ window.UserAnalyticsScreen = function UserAnalyticsScreen({ activity }) {
                   <Icon name={r.icon} size={11} color={r.c} /> {r.l}
                 </div>
                 <div className="tabular" style={{ fontSize: 18, fontWeight: 700, marginTop: 2, color: r.c }}>
-                  {revitActions[r.k] ?? Math.floor(Math.random() * 6)}
+                  {revitActions[r.k] ?? 0}
                 </div>
               </div>
             ))}
@@ -239,7 +246,7 @@ window.UserAnalyticsScreen = function UserAnalyticsScreen({ activity }) {
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
           <CardTitle title="Teams collaboration" subtitle="Optional integration · linked via Microsoft Graph" icon="video" />
           <div className="grid" style={{ gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
-            <Stat3 icon="phone"        label="Calls today" value="4" />
+            <Stat3 icon="phone"        label="Calls today" value={revitActions.teams} />
             <Stat3 icon="clock"        label="Total time"  value="2h 14m" />
             <Stat3 icon="users"        label="Distinct collaborators" value="7" />
           </div>
@@ -326,25 +333,32 @@ function Stat3({ icon, label, value }) {
 }
 
 /* Hour timeline (stacked horizontal bars per hour, 08–20) */
-function HourTimeline() {
+function HourTimeline({ events, focusMinNow, idleMinNow }) {
   const hours = ["08","09","10","11","12","13","14","15","16","17","18","19"];
-  // Each hour: revit / teams / idle / other / break (minutes, max 60)
-  const data = [
-    [42, 0, 18, 0, 0],   // 08
-    [54, 6, 0, 0, 0],    // 09
-    [10, 42, 8, 0, 0],   // 10
-    [48, 0, 6, 6, 0],    // 11
-    [0, 0, 0, 0, 60],    // 12 (lunch)
-    [38, 0, 4, 18, 0],   // 13
-    [50, 0, 6, 4, 0],    // 14
-    [42, 12, 6, 0, 0],   // 15
-    [38, 0, 12, 10, 0],  // 16
-    [22, 0, 10, 28, 0],  // 17
-    [12, 0, 6, 0, 42],   // 18
-    [0, 0, 0, 0, 60],    // 19
-  ];
-  const colors = ["rgb(var(--accent))","rgb(var(--accent-2))","rgb(var(--warning))","rgb(var(--success))","rgb(var(--fg-faint))"];
-  const labels = ["Revit","Teams","Idle","Other","Break"];
+  // Bin events by hour-of-day (Asia/Dubai is the agent's local TZ; browser local is acceptable here)
+  const bins = hours.map(() => ({ revit: 0, teams: 0, idle: 0, other: 0 }));
+  let firstAt = null, lastAt = null;
+  (events || []).forEach(e => {
+    if (!e.at) return;
+    const dt = new Date(e.at);
+    if (!firstAt || dt < firstAt) firstAt = dt;
+    if (!lastAt  || dt > lastAt)  lastAt = dt;
+    const h = dt.getHours() - 8;
+    if (h < 0 || h > 11) return;
+    if (e.kind === "teams") bins[h].teams += 10;       // ~10 min per teams event
+    else if (e.kind === "warning" || e.kind === "error") bins[h].other += 4;
+    else bins[h].revit += 4;                            // 4 min per Revit event
+  });
+  // Cap each bin at 60 min total without altering relative proportions
+  bins.forEach(b => {
+    const sum = b.revit + b.teams + b.other;
+    if (sum > 60) { const k = 60 / sum; b.revit *= k; b.teams *= k; b.other *= k; }
+    b.idle = Math.max(0, 60 - b.revit - b.teams - b.other - (sum === 0 ? 60 : 0));
+  });
+  const colors = ["rgb(var(--accent))","rgb(var(--accent-2))","rgb(var(--warning))","rgb(var(--fg-faint))"];
+  const labels = ["Revit","Teams","Idle","Other"];
+  const fmt = (d) => d ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—";
+  const totalMin = bins.reduce((a, b) => a + b.revit + b.teams + b.other, 0);
 
   return (
     <div style={{ marginTop: 6 }}>
@@ -352,27 +366,26 @@ function HourTimeline() {
         <div />
         {hours.map(h => <div key={h} className="muted tabular" style={{ fontSize: 10, textAlign: "center" }}>{h}:00</div>)}
         <div className="micro" style={{ textAlign: "right", paddingRight: 4 }}>MIN</div>
-        {data.map((h, i) => (
-          <React.Fragment key={i}>
-            <div style={{ position: "relative", height: 38, background: "rgb(var(--bg-sunken))", borderRadius: 6, overflow: "hidden", display: "flex", flexDirection: "column-reverse" }}>
-              {h.map((v, j) => (
-                <div key={j} title={`${labels[j]} · ${v}m`} style={{
-                  height: `${(v / 60) * 100}%`, background: colors[j],
-                  width: "100%",
-                }} />
-              ))}
-              {i === 11 && (
-                <div style={{ position: "absolute", inset: 0, background: "repeating-linear-gradient(45deg, transparent 0 4px, rgb(var(--fg-faint) / 0.15) 4px 8px)" }} />
-              )}
-            </div>
-          </React.Fragment>
-        ))}
+        {bins.map((b, i) => {
+          const order = [["revit", b.revit], ["teams", b.teams], ["idle", b.idle], ["other", b.other]];
+          return (
+            <React.Fragment key={i}>
+              <div style={{ position: "relative", height: 38, background: "rgb(var(--bg-sunken))", borderRadius: 6, overflow: "hidden", display: "flex", flexDirection: "column-reverse" }}>
+                {order.map(([key, v], j) => (
+                  <div key={key} title={`${labels[j]} · ${Math.round(v)}m`} style={{
+                    height: `${(v / 60) * 100}%`, background: colors[j], width: "100%",
+                  }} />
+                ))}
+              </div>
+            </React.Fragment>
+          );
+        })}
       </div>
       <div className="between" style={{ marginTop: 8, fontSize: 11 }}>
-        <span className="muted">First activity: <span className="mono" style={{ fontWeight: 600, color: "rgb(var(--fg))" }}>08:05</span></span>
-        <span className="muted">Last activity: <span className="mono" style={{ fontWeight: 600, color: "rgb(var(--fg))" }}>17:48 · live</span></span>
-        <span className="muted">Total tracked: <span className="tabular" style={{ fontWeight: 600, color: "rgb(var(--fg))" }}>8h 42m</span></span>
-        <span className="muted">Compliance: <Pill tone="success" dot>Within working hours policy</Pill></span>
+        <span className="muted">First activity: <span className="mono" style={{ fontWeight: 600, color: "rgb(var(--fg))" }}>{fmt(firstAt)}</span></span>
+        <span className="muted">Last activity: <span className="mono" style={{ fontWeight: 600, color: "rgb(var(--fg))" }}>{fmt(lastAt)}</span></span>
+        <span className="muted">Activity captured: <span className="tabular" style={{ fontWeight: 600, color: "rgb(var(--fg))" }}>{events ? events.length : 0} events</span></span>
+        <span className="muted">Focus / idle now: <span className="tabular" style={{ fontWeight: 600 }}>{focusMinNow || 0}m / {idleMinNow || 0}m</span></span>
       </div>
     </div>
   );
