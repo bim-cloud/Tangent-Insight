@@ -117,7 +117,7 @@ function App() {
       case "live":          return <window.LiveScreen activity={activity} setRoute={setRoute} />;
       case "revit":         return <window.RevitScreen selectedProject={selectedProject} setSelectedProject={setSelectedProject} setSelectedEmployee={setSelectedEmployee} setRoute={setRoute} activity={activity} />;
       case "employees":     return <window.EmployeesScreen selectedEmployee={selectedEmployee} setSelectedEmployee={setSelectedEmployee} setRoute={setRoute} activity={activity} />;
-      case "teams":         return <window.TeamsScreen />;
+      case "teams":         return <window.TeamsScreen activity={activity} setRoute={setRoute} setSelectedEmployee={setSelectedEmployee} />;
       case "attendance":    return <window.AttendanceScreen />;
       case "history":       return <window.HistoryScreen activity={activity} />;
       case "useranalytics": return <window.UserAnalyticsScreen activity={activity} />;
