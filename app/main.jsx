@@ -24,7 +24,7 @@ const ROUTE_META = {
   reports:       { title: "Reports & Export",         subtitle: "Build · schedule · share", breadcrumbs: ["Insights", "Reports"] },
   analytics:     { title: "Analytics",                subtitle: "Productivity, utilization, risk", breadcrumbs: ["Insights", "Analytics"] },
   notifications: { title: "Notifications",            subtitle: "Alerts & system messages", breadcrumbs: ["System", "Notifications"] },
-  admin:         { title: "Admin & Permissions",      subtitle: "Roles, security, retention, integrations", breadcrumbs: ["System", "Admin"] },
+  admin:         { title: "Autodesk ID Manager",      subtitle: "Live view of Autodesk logins, workstations, and directory health", breadcrumbs: ["System", "Autodesk ID Manager"] },
   settings:      { title: "Settings",                 subtitle: "Profile, preferences, integrations", breadcrumbs: ["System", "Settings"] },
 };
 
