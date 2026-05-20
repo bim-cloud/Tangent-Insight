@@ -319,19 +319,32 @@ window.AdminScreen = function AdminScreen() {
   const unmapped   = machines.filter(m => !m.person_id).length;
   const onlineNow  = machines.filter(m => m.online).length;
 
-  // Pivot: one row per Autodesk ID, listing humans observed using it.
+  // Pivot: one row per Autodesk ID. The agent reports autodesk_user when it
+  // can read Autodesk's login file on a sampled machine. As a fallback for
+  // staff who haven't been sampled yet, we also fold in people.email so the
+  // table is useful from day one — those rows are labelled 'from directory'.
   const byAutodeskId = {};
   machines.forEach(m => {
     if (!m.autodesk_user) return;
     const k = m.autodesk_user.toLowerCase();
-    if (!byAutodeskId[k]) byAutodeskId[k] = { autodesk_id: m.autodesk_user, users: {}, machines: [], last_seen: m.last_seen };
+    if (!byAutodeskId[k]) byAutodeskId[k] = { autodesk_id: m.autodesk_user, users: {}, machines: [], last_seen: m.last_seen, source: "agent" };
     if (m.person_id) byAutodeskId[k].users[m.person_id] = true;
     byAutodeskId[k].machines.push(m.machine_id);
     if (m.last_seen > byAutodeskId[k].last_seen) byAutodeskId[k].last_seen = m.last_seen;
   });
+  // Fallback: directory entries with an email that the agent hasn't observed yet
+  D.people.forEach(p => {
+    if (!p.email) return;
+    const k = p.email.toLowerCase();
+    if (byAutodeskId[k]) { byAutodeskId[k].users[p.id] = true; return; }
+    byAutodeskId[k] = { autodesk_id: p.email, users: { [p.id]: true }, machines: [], last_seen: null, source: "directory" };
+  });
   const idTable = Object.values(byAutodeskId)
     .map(r => ({ ...r, users: Object.keys(r.users) }))
-    .sort((a, b) => b.users.length - a.users.length || b.machines.length - a.machines.length);
+    .sort((a, b) => (a.source === b.source ? 0 : a.source === "agent" ? -1 : 1)
+                    || b.users.length - a.users.length
+                    || b.machines.length - a.machines.length);
+  const observedCount = idTable.filter(r => r.source === "agent").length;
 
   return (
     <PageShell>
@@ -347,7 +360,7 @@ window.AdminScreen = function AdminScreen() {
       <div className="surface" style={{ padding: 0, borderRadius: 18, overflow: "hidden" }}>
         <div className="between" style={{ padding: "12px 14px", borderBottom: "1px solid rgb(var(--hairline))" }}>
           <CardTitle title="Autodesk ID manager"
-                     subtitle={"Which Autodesk login is being used on which machine — observed live by the agent · " + idTable.length + " IDs in use"}
+                     subtitle={observedCount + " observed live by agents · " + (idTable.length - observedCount) + " from staff directory"}
                      icon="key-square" />
           <div className="center gap-2">
             <button className="btn btn-secondary btn-sm"
@@ -403,9 +416,15 @@ window.AdminScreen = function AdminScreen() {
                                 })}
                               </div>}
                         </td>
-                        <td className="mono" style={{ fontSize: 11 }}>{r.machines.slice(0, 3).join(", ")}{r.machines.length > 3 ? " +" + (r.machines.length - 3) : ""}</td>
-                        <td className="muted tabular" style={{ fontSize: 11 }}>{r.last_seen ? new Date(r.last_seen).toLocaleString("en-GB") : "—"}</td>
-                        <td>{shared ? <Pill tone="warning">Shared · {r.users.length}</Pill> : <Pill tone="success">Personal</Pill>}</td>
+                        <td className="mono" style={{ fontSize: 11 }}>{r.machines.length ? r.machines.slice(0, 3).join(", ") + (r.machines.length > 3 ? " +" + (r.machines.length - 3) : "") : <span className="muted">—</span>}</td>
+                        <td className="muted tabular" style={{ fontSize: 11 }}>{r.last_seen ? new Date(r.last_seen).toLocaleString("en-GB") : <span className="muted">never</span>}</td>
+                        <td>
+                          {r.source === "directory"
+                            ? <Pill tone="neutral">From directory</Pill>
+                            : shared
+                                ? <Pill tone="warning">Shared · {r.users.length}</Pill>
+                                : <Pill tone="success">Observed</Pill>}
+                        </td>
                       </tr>
                     );
                   })}
@@ -526,29 +545,64 @@ function exportCsv(name, rows, fields) {
 
 /* ========== SETTINGS ========== */
 window.SettingsScreen = function SettingsScreen() {
+  const D = window.TI_DATA;
+  const auth = window.TI_AUTH;
+  const session = (auth && auth.getSession && auth.getSession()) || null;
+  const email = session && session.user && session.user.email;
+  // Find the signed-in person in the directory (by email)
+  const me = email
+    ? (D.people || []).find(p => (p.email || "").toLowerCase() === email.toLowerCase())
+    : null;
+
+  const [tab, setTab] = React.useState("profile");
+  const [pwOld, setPwOld] = React.useState("");
+  const [pwNew, setPwNew] = React.useState("");
+  const [pwStatus, setPwStatus] = React.useState(null);
+  const [pref, setPref] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem("ti.prefs") || "{}"); } catch (e) { return {}; }
+  });
+  const setP = (k, v) => {
+    const next = { ...pref, [k]: v };
+    setPref(next);
+    try { localStorage.setItem("ti.prefs", JSON.stringify(next)); } catch (e) {}
+  };
+
+  const tabs = [
+    { id: "profile",       icon: "user",     l: "Profile" },
+    { id: "appearance",    icon: "palette",  l: "Appearance" },
+    { id: "notifications", icon: "bell",     l: "Notifications" },
+    { id: "security",      icon: "shield",   l: "Security" },
+    { id: "about",         icon: "info",     l: "About" },
+  ];
+
+  async function changePassword(e) {
+    e.preventDefault();
+    if (!pwNew || pwNew.length < 8) { setPwStatus({ tone: "error", msg: "New password must be at least 8 characters." }); return; }
+    setPwStatus({ tone: "loading", msg: "Updating…" });
+    try {
+      const cfg = window.TI_SUPABASE;
+      const r = await fetch(cfg.url + "/auth/v1/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", apikey: cfg.anon, Authorization: "Bearer " + session.access_token },
+        body: JSON.stringify({ password: pwNew }),
+      });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.msg || j.error_description || "Update failed"); }
+      setPwOld(""); setPwNew(""); setPwStatus({ tone: "ok", msg: "Password updated." });
+    } catch (err) { setPwStatus({ tone: "error", msg: err.message }); }
+  }
+
   return (
     <PageShell maxWidth={1100}>
       <div className="grid" style={{ gridTemplateColumns: "220px 1fr" }}>
         <div className="surface" style={{ padding: 10, borderRadius: 14 }}>
-          {[
-            { icon: "user",        l: "Profile",         active: true },
-            { icon: "bell",        l: "Notifications" },
-            { icon: "palette",     l: "Appearance" },
-            { icon: "globe",       l: "Region & language" },
-            { icon: "shield",      l: "Security" },
-            { icon: "key",         l: "API tokens" },
-            { icon: "users",       l: "Team" },
-            { icon: "plug-zap",    l: "Integrations" },
-            { icon: "credit-card", l: "Billing" },
-          ].map((s, i) => (
-            <button key={i} style={{
+          {tabs.map(s => (
+            <button key={s.id} onClick={() => setTab(s.id)} style={{
               width: "100%", display: "flex", alignItems: "center", gap: 10,
               padding: "8px 10px", borderRadius: 9, fontSize: 12.5,
-              background: s.active ? "rgb(var(--accent-soft))" : "transparent",
-              color: s.active ? "rgb(var(--accent))" : "rgb(var(--fg-soft))",
-              fontWeight: s.active ? 600 : 500,
-              border: "none", cursor: "pointer",
-              textAlign: "left",
+              background: tab === s.id ? "rgb(var(--accent-soft))" : "transparent",
+              color: tab === s.id ? "rgb(var(--accent))" : "rgb(var(--fg-soft))",
+              fontWeight: tab === s.id ? 600 : 500,
+              border: "none", cursor: "pointer", textAlign: "left",
             }}>
               <Icon name={s.icon} size={14} /> {s.l}
             </button>
@@ -556,274 +610,140 @@ window.SettingsScreen = function SettingsScreen() {
         </div>
 
         <div className="surface" style={{ padding: 18, borderRadius: 18 }}>
-          <h2 className="h2">Profile</h2>
-          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Your personal details, visible across Tangent Insight</div>
-          <div className="divider" style={{ margin: "16px 0" }} />
-          <div className="grid" style={{ gridTemplateColumns: "auto 1fr", gap: 24, alignItems: "flex-start" }}>
-            <div className="col gap-3" style={{ alignItems: "center" }}>
-              <Avatar name="Layla Haddad" initials="LH" size={84} discipline="MANAGER" />
-              <button className="btn btn-secondary btn-sm"><Icon name="upload" size={11} /> Upload</button>
-            </div>
-            <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Field label="Full name" value="Layla Haddad" />
-              <Field label="Email" value="layla.haddad@tangent.ae" />
-              <Field label="Role" value="BIM Manager" />
-              <Field label="Department" value="BIM" />
-              <Field label="Office" value="Dubai · HQ" />
-              <Field label="Started" value="March 2022" />
-            </div>
-          </div>
-          <div className="divider" style={{ margin: "20px 0" }} />
-          <div className="between">
-            <div className="muted" style={{ fontSize: 11.5 }}>Last saved · 2 minutes ago</div>
-            <div className="center gap-2">
-              <button className="btn btn-secondary btn-sm">Cancel</button>
-              <button className="btn btn-primary btn-sm">Save changes</button>
-            </div>
-          </div>
+          {tab === "profile" && (
+            !session
+              ? <div className="muted">You are not signed in.</div>
+              : <>
+                  <h2 className="h2">Profile</h2>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>From your sign-in and directory record. Edits flow through your administrator.</div>
+                  <div className="divider" style={{ margin: "16px 0" }} />
+                  <div className="grid" style={{ gridTemplateColumns: "auto 1fr", gap: 24, alignItems: "flex-start" }}>
+                    <div className="col gap-3" style={{ alignItems: "center" }}>
+                      <Avatar name={me ? me.name : email} initials={me ? me.initials : (email || "?").slice(0,2).toUpperCase()} size={84} discipline={me ? me.discipline : "MANAGER"} />
+                      <div className="muted" style={{ fontSize: 10.5 }}>Avatar generated from name</div>
+                    </div>
+                    <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      <Field label="Full name" value={me ? me.name : "—"} readOnly />
+                      <Field label="Email" value={email || "—"} readOnly />
+                      <Field label="Role" value={me ? me.role : "—"} readOnly />
+                      <Field label="Department" value={me ? me.dept : "—"} readOnly />
+                      <Field label="Workstation" value={me ? me.machine : "—"} readOnly />
+                      <Field label="Windows account" value={me ? (me.username || "—") : "—"} readOnly mono />
+                    </div>
+                  </div>
+                  <div className="divider" style={{ margin: "20px 0" }} />
+                  <div className="muted" style={{ fontSize: 11.5 }}>
+                    Need a change? Profile data comes from <span className="mono">public.people</span> in Supabase — your administrator can update it.
+                  </div>
+                </>
+          )}
+
+          {tab === "appearance" && (
+            <>
+              <h2 className="h2">Appearance</h2>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Saved to this browser.</div>
+              <div className="divider" style={{ margin: "16px 0" }} />
+              <ToggleRow label="Reduced motion" sub="Quiet animations and the live waveform" v={!!pref.reducedMotion} onChange={v => setP("reducedMotion", v)} />
+              <ToggleRow label="High-contrast borders" sub="Stronger separators for low-light displays" v={!!pref.highContrast} onChange={v => setP("highContrast", v)} />
+              <ToggleRow label="Compact density" sub="Tighten table rows" v={!!pref.compact} onChange={v => setP("compact", v)} />
+            </>
+          )}
+
+          {tab === "notifications" && (
+            <>
+              <h2 className="h2">Notifications</h2>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>What surfaces in the bell menu. Saved to this browser.</div>
+              <div className="divider" style={{ margin: "16px 0" }} />
+              <ToggleRow label="Critical project alerts" sub="Stale syncs, missing linked models" v={pref.notifCritical !== false} onChange={v => setP("notifCritical", v)} />
+              <ToggleRow label="Idle staff over 30m"     sub="Surface in the alerts panel" v={pref.notifIdle !== false} onChange={v => setP("notifIdle", v)} />
+              <ToggleRow label="Daily summary"           sub="One digest per workday" v={!!pref.notifDigest} onChange={v => setP("notifDigest", v)} />
+            </>
+          )}
+
+          {tab === "security" && (
+            <>
+              <h2 className="h2">Security</h2>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Sign-in and session controls.</div>
+              <div className="divider" style={{ margin: "16px 0" }} />
+              <form onSubmit={changePassword} style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 380 }}>
+                <div className="micro">Change password</div>
+                <input className="input" type="password" placeholder="Current password (optional)" value={pwOld} onChange={e => setPwOld(e.target.value)} />
+                <input className="input" type="password" placeholder="New password (min 8 chars)" value={pwNew} onChange={e => setPwNew(e.target.value)} />
+                {pwStatus && (
+                  <div style={{ fontSize: 11.5, padding: "6px 10px", borderRadius: 8,
+                                background: pwStatus.tone === "error" ? "rgb(var(--danger) / 0.08)" : pwStatus.tone === "ok" ? "rgb(var(--success) / 0.08)" : "rgb(var(--bg-sunken))",
+                                color: pwStatus.tone === "error" ? "rgb(var(--danger))" : pwStatus.tone === "ok" ? "rgb(var(--success))" : "rgb(var(--fg-soft))" }}>{pwStatus.msg}</div>
+                )}
+                <button className="btn btn-primary btn-sm" type="submit" disabled={pwStatus && pwStatus.tone === "loading"}>
+                  <Icon name="key" size={12} /> Update password
+                </button>
+              </form>
+              <div className="divider" style={{ margin: "20px 0" }} />
+              <button className="btn btn-secondary btn-sm" onClick={() => auth && auth.signOut()}>
+                <Icon name="log-out" size={12} /> Sign out everywhere
+              </button>
+            </>
+          )}
+
+          {tab === "about" && (
+            <>
+              <h2 className="h2">About Tangent Insight</h2>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Build info and what the agent can actually capture.</div>
+              <div className="divider" style={{ margin: "16px 0" }} />
+              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <Field label="Dashboard version" value="1.0" readOnly />
+                <Field label="Agent version" value="1.0.0" readOnly />
+                <Field label="Supabase project" value={(window.TI_SUPABASE && window.TI_SUPABASE.url) || "—"} readOnly mono />
+                <Field label="Live mode" value={window.TI_LIVE ? "yes" : "no"} readOnly />
+              </div>
+              <div className="divider" style={{ margin: "16px 0" }} />
+              <div className="micro" style={{ marginBottom: 8 }}>What the agent captures</div>
+              <ul style={{ fontSize: 12, lineHeight: 1.7, paddingLeft: 18, color: "rgb(var(--fg-soft))" }}>
+                <li>Revit / AutoCAD / Navisworks running, Revit version, <b>active document name</b> (the central model)</li>
+                <li>Foreground app, idle time, Windows account (identity)</li>
+                <li>Microsoft Teams call state (presence in/out)</li>
+                <li>Autodesk login email (when signed in)</li>
+              </ul>
+              <div className="micro" style={{ marginTop: 14, marginBottom: 8 }}>What requires a Revit plugin (not built)</div>
+              <ul style={{ fontSize: 12, lineHeight: 1.7, paddingLeft: 18, color: "rgb(var(--fg-soft))" }}>
+                <li>Sync-to-central events, local saves, view changes, warning/clash counts</li>
+                <li>Meeting titles / attendees (requires Microsoft Graph API)</li>
+              </ul>
+            </>
+          )}
         </div>
       </div>
     </PageShell>
   );
 };
 
-function Field({ label, value }) {
+function ToggleRow({ label, sub, v, onChange }) {
+  return (
+    <div className="between" style={{ padding: "8px 0", borderTop: "1px solid rgb(var(--hairline))" }}>
+      <div>
+        <div style={{ fontSize: 12.5, fontWeight: 600 }}>{label}</div>
+        <div className="muted" style={{ fontSize: 10.5 }}>{sub}</div>
+      </div>
+      <button onClick={() => onChange(!v)} style={{
+        width: 32, height: 18, borderRadius: 9999,
+        background: v ? "rgb(var(--accent))" : "rgb(var(--border-strong))",
+        border: "none", cursor: "pointer", position: "relative", transition: "all 0.2s",
+      }}>
+        <span style={{
+          position: "absolute", top: 2, left: v ? 16 : 2,
+          height: 14, width: 14, borderRadius: 9999, background: "white", transition: "all 0.2s",
+          boxShadow: "0 1px 3px rgb(0 0 0 / 0.2)",
+        }} />
+      </button>
+    </div>
+  );
+}
+
+function Field({ label, value, readOnly, mono }) {
   return (
     <div>
       <div className="micro" style={{ marginBottom: 4 }}>{label}</div>
-      <input className="input" defaultValue={value} />
-    </div>
-  );
-}
-
-/* ========== AUTODESK ID MONITOR (Admin) ==========
-   Mirrors the original WPF tool: tracks each user's expected vs actual
-   Autodesk login, flags shared-license usage, and surfaces audit issues.
-   Credentials themselves are NEVER displayed in plaintext — admins can
-   request a one-time reveal which is logged. */
-function AutodeskIdMonitor() {
-  const D = window.TI_DATA;
-  const [reveal, setReveal] = React.useState({});
-  const [search, setSearch] = React.useState("");
-  const [filter, setFilter] = React.useState("all");
-
-  // Build synthetic ID-monitor rows from people
-  const rows = D.people.map((p, i) => {
-    const expected = `${p.initials.toLowerCase()}@tangent.ae`;
-    // Simulate scenarios
-    const variant = i % 8;
-    let actual = expected, status = "OK", note = "Verified · matches expected ID";
-    if (variant === 2) {
-      actual = "shared.bim@tangent.ae";
-      status = "SHARED";
-      note = "License also active on TLA-DXB-007 (Hiroshi T.)";
-    } else if (variant === 5) {
-      actual = `${p.initials.toLowerCase()}@gmail.com`;
-      status = "MISMATCH";
-      note = "Personal account detected · policy violation";
-    } else if (variant === 4) {
-      actual = "—";
-      status = "OFFLINE";
-      note = "Not signed in to Autodesk · last seen 2h ago";
-    } else if (variant === 7) {
-      status = "STALE";
-      note = "Token expired · refresh needed";
-    }
-    const machineCount = status === "SHARED" ? 2 : 1;
-    const lastVerified = ["1m ago", "12m ago", "32m ago", "1h ago", "3h ago", "Yesterday"][i % 6];
-    return { ...p, expected, actual, status, note, machineCount, lastVerified };
-  });
-
-  const counts = {
-    ok: rows.filter(r => r.status === "OK").length,
-    shared: rows.filter(r => r.status === "SHARED").length,
-    mismatch: rows.filter(r => r.status === "MISMATCH").length,
-    stale: rows.filter(r => r.status === "STALE").length,
-    offline: rows.filter(r => r.status === "OFFLINE").length,
-  };
-
-  const filtered = rows.filter(r => {
-    if (filter !== "all" && r.status !== filter.toUpperCase()) return false;
-    if (search && !(r.name + r.expected + r.actual + r.machine).toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
-
-  const statusPill = (s) => {
-    const map = {
-      OK:       { tone: "success", label: "Verified" },
-      SHARED:   { tone: "danger",  label: "Shared license" },
-      MISMATCH: { tone: "danger",  label: "ID mismatch" },
-      STALE:    { tone: "warning", label: "Stale token" },
-      OFFLINE:  { tone: "neutral", label: "Signed out" },
-    }[s] || { tone: "neutral", label: s };
-    return <Pill tone={map.tone} dot={s !== "OFFLINE"}>{map.label}</Pill>;
-  };
-
-  return (
-    <div className="surface" style={{ padding: 0, borderRadius: 18, overflow: "hidden" }}>
-      <div className="between" style={{ padding: "14px 16px", borderBottom: "1px solid rgb(var(--hairline))" }}>
-        <div className="center gap-3">
-          <div style={{
-            height: 36, width: 36, borderRadius: 10,
-            background: "linear-gradient(135deg, #00AEEF, #6366F1)",
-            color: "white", display: "inline-flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 6px 16px -4px rgb(0 174 239 / 0.4)",
-          }}>
-            <Icon name="key-round" size={17} />
-          </div>
-          <div>
-            <div className="center gap-2">
-              <h2 className="h2">Autodesk ID Monitor</h2>
-              <Pill tone="danger" icon="lock">Admin only</Pill>
-            </div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-              Expected vs actual sign-in across all monitored workstations · auto-detects shared licenses & personal accounts
-            </div>
-          </div>
-        </div>
-        <div className="center gap-2">
-          <Pill tone="success" icon="shield-check">Encrypted at rest</Pill>
-          <button className="btn btn-secondary btn-sm"><Icon name="refresh-cw" size={12} /> Re-verify all</button>
-          <button className="btn btn-secondary btn-sm"><Icon name="download" size={12} /> Audit CSV</button>
-        </div>
-      </div>
-
-      {/* Status strip */}
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid rgb(var(--hairline))", display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
-        <IdStat label="Verified"        value={counts.ok}       tone="success" />
-        <IdStat label="Shared license"  value={counts.shared}   tone="danger" />
-        <IdStat label="ID mismatch"     value={counts.mismatch} tone="danger" />
-        <IdStat label="Stale token"     value={counts.stale}    tone="warning" />
-        <IdStat label="Signed out"      value={counts.offline}  tone="muted" />
-      </div>
-
-      {/* Compliance banner */}
-      {(counts.shared > 0 || counts.mismatch > 0) && (
-        <div style={{
-          padding: "10px 16px",
-          background: "rgb(var(--danger) / 0.06)",
-          borderBottom: "1px solid rgb(var(--danger) / 0.18)",
-          display: "flex", alignItems: "center", gap: 10,
-        }}>
-          <Icon name="alert-octagon" size={15} color="rgb(var(--danger))" />
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: "rgb(var(--danger))" }}>
-            {counts.shared + counts.mismatch} compliance issue{counts.shared + counts.mismatch > 1 ? "s" : ""} detected
-          </span>
-          <span className="muted" style={{ fontSize: 11.5 }}>
-            Shared Autodesk seats and non-Tangent email accounts will be reported to BIM management
-          </span>
-          <div style={{ flex: 1 }} />
-          <button className="btn btn-danger btn-sm" style={{ background: "rgb(var(--danger))", color: "white" }}>
-            Investigate
-          </button>
-        </div>
-      )}
-
-      {/* Filter bar */}
-      <div style={{ padding: "10px 16px", borderBottom: "1px solid rgb(var(--hairline))", display: "flex", alignItems: "center", gap: 10 }}>
-        <div className="search-wrap" style={{ width: 260 }}>
-          <Icon className="search-icon" name="search" size={14} />
-          <input className="input" placeholder="Name, email, machine…" value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-        <div className="seg">
-          {[
-            { id: "all",      l: "All",        c: rows.length },
-            { id: "ok",       l: "Verified",   c: counts.ok },
-            { id: "shared",   l: "Shared",     c: counts.shared },
-            { id: "mismatch", l: "Mismatch",   c: counts.mismatch },
-            { id: "stale",    l: "Stale",      c: counts.stale },
-            { id: "offline",  l: "Signed out", c: counts.offline },
-          ].map(o => (
-            <button key={o.id} className={filter === o.id ? "on" : ""} onClick={() => setFilter(o.id)}>
-              {o.l} <span className="muted">· {o.c}</span>
-            </button>
-          ))}
-        </div>
-        <div style={{ flex: 1 }} />
-        <button className="btn btn-ghost btn-sm"><Icon name="info" size={12} /> Why we track this</button>
-      </div>
-
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Employee</th>
-            <th>Expected Autodesk ID</th>
-            <th>Actual signed-in ID</th>
-            <th>Credential</th>
-            <th>Machine(s)</th>
-            <th>Status</th>
-            <th>Last verified</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map(r => (
-            <tr key={r.id}>
-              <td>
-                <div className="center gap-3">
-                  <Avatar name={r.name} initials={r.initials} size={26} discipline={r.discipline} status={r.status} />
-                  <div>
-                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r.name}</div>
-                    <div className="muted" style={{ fontSize: 10.5 }}>{r.role}</div>
-                  </div>
-                </div>
-              </td>
-              <td className="mono" style={{ fontSize: 11.5 }}>{r.expected}</td>
-              <td className="mono" style={{ fontSize: 11.5, color: r.status === "MISMATCH" || r.status === "SHARED" ? "rgb(var(--danger))" : r.status === "OFFLINE" ? "rgb(var(--fg-faint))" : "rgb(var(--fg))", fontWeight: r.status === "MISMATCH" ? 700 : 500 }}>
-                {r.actual}
-              </td>
-              <td>
-                <div className="center gap-2">
-                  <span className="mono" style={{
-                    fontSize: 11.5, letterSpacing: reveal[r.id] ? "0.04em" : "0.18em",
-                    color: "rgb(var(--fg-soft))",
-                  }}>
-                    {reveal[r.id] ? "Aut0d3sk·" + r.initials + "·2026" : "••••••••••••"}
-                  </span>
-                  <button className="btn btn-ghost btn-icon" title="Request one-time reveal · logged"
-                          onClick={() => setReveal(prev => ({ ...prev, [r.id]: !prev[r.id] }))}>
-                    <Icon name={reveal[r.id] ? "eye-off" : "eye"} size={12} />
-                  </button>
-                </div>
-              </td>
-              <td>
-                <div className="center gap-2">
-                  <span className="mono" style={{ fontSize: 11 }}>{r.machine}</span>
-                  {r.machineCount > 1 && <Pill tone="danger">+{r.machineCount - 1}</Pill>}
-                </div>
-              </td>
-              <td>{statusPill(r.status)}</td>
-              <td className="muted" style={{ fontSize: 11 }}>{r.lastVerified}</td>
-              <td><button className="btn btn-ghost btn-icon"><Icon name="more-horizontal" size={13} /></button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <div style={{ padding: "10px 16px", borderTop: "1px solid rgb(var(--hairline))", display: "flex", alignItems: "center", gap: 10 }}>
-        <Icon name="info" size={12} color="rgb(var(--fg-faint))" />
-        <span className="muted" style={{ fontSize: 11 }}>
-          Credentials are end-to-end encrypted with Azure Key Vault · every reveal is recorded in the audit log · agent v2.0.0 verifies sign-in via <span className="mono">loginstate.json</span> every 60s
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function IdStat({ label, value, tone }) {
-  const c = tone === "success" ? "rgb(var(--success))"
-          : tone === "warning" ? "rgb(var(--warning))"
-          : tone === "danger"  ? "rgb(var(--danger))"
-          : "rgb(var(--fg-muted))";
-  return (
-    <div className="surface-flat" style={{ padding: "8px 10px", borderRadius: 10, display: "flex", alignItems: "center", gap: 10 }}>
-      <div style={{ height: 28, width: 28, borderRadius: 8, background: c + "1A", color: c, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-        <Icon name={tone === "success" ? "check" : tone === "danger" ? "alert-octagon" : tone === "warning" ? "alert-triangle" : "user-x"} size={13} />
-      </div>
-      <div style={{ flex: 1 }}>
-        <div className="micro" style={{ fontSize: 9.5 }}>{label}</div>
-        <div className="tabular" style={{ fontSize: 16, fontWeight: 700, color: c, lineHeight: 1 }}>{value}</div>
-      </div>
+      <input className={"input" + (mono ? " mono" : "")} defaultValue={value || ""} readOnly={readOnly} />
     </div>
   );
 }
