@@ -400,6 +400,12 @@ window.AdminScreen = function AdminScreen() {
   const [machines, setMachines] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
 
+  // Who is signed in, and are they an admin?
+  const session = (window.TI_AUTH && window.TI_AUTH.getSession && window.TI_AUTH.getSession()) || null;
+  const email = session && session.user && session.user.email;
+  const me = email ? (D.people || []).find(p => (p.email || "").toLowerCase() === email.toLowerCase()) : null;
+  const isAdmin = !!(me && me.is_admin);
+
   // Pull the live agent_machines table (read-only via RLS)
   React.useEffect(() => {
     let cancelled = false;
@@ -484,11 +490,12 @@ window.AdminScreen = function AdminScreen() {
           ? <div className="muted" style={{ padding: 16, fontSize: 12, textAlign: "center" }}>Loading agent data…</div>
           : idTable.length === 0
             ? <div className="muted" style={{ padding: 16, fontSize: 12, textAlign: "center" }}>No Autodesk logins captured yet. Run the agent on a workstation that is signed into Autodesk and they will appear here.</div>
-            : <AutodeskIdList rows={idTable} machines={machines} D={D} />
+            : <AutodeskIdList rows={idTable} machines={machines} D={D} isAdmin={isAdmin} />
         }
       </div>
 
       {/* Machine -> person mapping (the second table the user asked for) */}
+      {isAdmin && (
       <div className="surface" style={{ padding: 0, borderRadius: 18, overflow: "hidden" }}>
         <div className="between" style={{ padding: "12px 14px", borderBottom: "1px solid rgb(var(--hairline))" }}>
           <CardTitle title="Workstations" subtitle="Machine → human → Autodesk ID, observed live" icon="laptop" />
@@ -524,8 +531,10 @@ window.AdminScreen = function AdminScreen() {
             </table>
           )}
       </div>
+      )}
 
-      {/* Useful, actually-true admin info: directory health */}
+      {/* Useful, actually-true admin info: directory health (admin only) */}
+      {isAdmin && (
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
           <CardTitle title="Directory health" subtitle="People rows by mapping completeness" icon="user-check" />
@@ -555,6 +564,19 @@ window.AdminScreen = function AdminScreen() {
           </div>
         </div>
       </div>
+      )}
+
+      {!isAdmin && (
+        <div className="surface" style={{ padding: 14, borderRadius: 14,
+              border: "1px solid rgb(var(--accent) / 0.25)",
+              background: "rgb(var(--accent) / 0.05)" }}>
+          <div className="center gap-2" style={{ fontSize: 12.5 }}>
+            <Icon name="info" size={14} color="rgb(var(--accent))" />
+            <span>You're viewing the read-only Autodesk ID map.
+              Workstation details, machine IDs, and directory health are available to administrators only.</span>
+          </div>
+        </div>
+      )}
     </PageShell>
   );
 };
@@ -790,16 +812,29 @@ function ProfilePanel({ session, email, me }) {
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
-        throw new Error(j.message || j.hint || ("HTTP " + r.status));
+        const msg = j.message || j.hint || j.error_description || ("HTTP " + r.status);
+        // Most likely failure mode: migration 0005 hasn't been applied yet.
+        // 403/401 + a permission-shaped message means RLS is blocking.
+        if (r.status === 403 || r.status === 401 ||
+            /permission denied|policy|RLS|row-level/i.test(msg)) {
+          throw new Error(
+            "Permission denied. The 0005_self_edit_policy.sql migration hasn't been applied yet — open Supabase → SQL Editor and run it. " +
+            "(Server said: " + msg + ")"
+          );
+        }
+        if (r.status === 404) {
+          throw new Error("Your account is signed in as " + (email || "?") +
+            " but no row in public.people matches that email. Ask an admin to align the directory.");
+        }
+        throw new Error(msg);
       }
       // Reflect in TI_DATA locally so the rest of the dashboard updates immediately
       const local = (window.TI_DATA.people || []).find(p => p.id === me.id);
       if (local) { local.role = role; local.dept = dept; local.discipline = disc; }
-      setStatus({ tone: "ok", msg: "Saved. Refresh other tabs to see the change everywhere." });
-      // Force re-render of dependent screens by re-fetching
+      setStatus({ tone: "ok", msg: "Saved." });
       if (window.TI_REFRESH) window.TI_REFRESH();
     } catch (e) {
-      setStatus({ tone: "error", msg: "Couldn't save — " + e.message + ". (Run migration 0005_self_edit_policy.sql in Supabase.)" });
+      setStatus({ tone: "error", msg: e.message });
     }
   }
 
@@ -903,7 +938,7 @@ function Field({ label, value, readOnly, mono }) {
 }
 
 
-function AutodeskIdList({ rows, machines, D }) {
+function AutodeskIdList({ rows, machines, D, isAdmin }) {
   const [open, setOpen] = React.useState({});
   const [tab, setTab] = React.useState({});            // per-row tab state
   const toggle = (id) => setOpen(o => ({ ...o, [id]: !o[id] }));
@@ -963,9 +998,11 @@ function AutodeskIdList({ rows, machines, D }) {
                   <button className={activeTab === "sharing"  ? "on" : ""} onClick={() => setRowTab(r.autodesk_id, "sharing")}>
                     Shared with <span className="muted">· {userNames.length}</span>
                   </button>
-                  <button className={activeTab === "machines" ? "on" : ""} onClick={() => setRowTab(r.autodesk_id, "machines")}>
-                    Machines <span className="muted">· {matchingMachines.length}</span>
-                  </button>
+                  {isAdmin && (
+                    <button className={activeTab === "machines" ? "on" : ""} onClick={() => setRowTab(r.autodesk_id, "machines")}>
+                      Machines <span className="muted">· {matchingMachines.length}</span>
+                    </button>
+                  )}
                 </div>
 
                 {activeTab === "current" && (
