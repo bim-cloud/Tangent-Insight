@@ -30,7 +30,7 @@ const NAV_GROUPS = [
     label: "System",
     items: [
       { id: "notifications", icon: "bell",          label: "Notifications",    count: 3 },
-      { id: "admin",      icon: "shield",           label: "Admin & Roles" },
+      { id: "admin",      icon: "key-square",       label: "Autodesk ID Manager" },
       { id: "settings",   icon: "settings",         label: "Settings" },
     ],
   },
