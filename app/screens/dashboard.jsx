@@ -72,8 +72,15 @@ window.DashboardScreen = function DashboardScreen({ activity, setRoute, setSelec
               <button>Month</button>
               <button>Quarter</button>
             </div>
-            <button className="btn btn-secondary btn-sm"><Icon name="download" size={12} /> Export</button>
-            <button className="btn btn-secondary btn-sm"><Icon name="sliders-horizontal" size={12} /> Customize</button>
+            <button className="btn btn-secondary btn-sm"
+                    onClick={() => window.TI_UTIL.exportCsv("dashboard-team-snapshot",
+                      D.people.map(p => ({ name: p.name, dept: p.dept, role: p.role, status: p.status,
+                        project: p.project, hours_today: p.hours, overtime: p.ot, utilization_pct: p.utilization })))}>
+              <Icon name="download" size={12} /> Export
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setRoute("analytics")}>
+              <Icon name="sliders-horizontal" size={12} /> Customize
+            </button>
           </div>
         </div>
       </div>
@@ -284,7 +291,7 @@ window.DashboardScreen = function DashboardScreen({ activity, setRoute, setSelec
       {/* Row 4: Notifications + Quick actions + Recent submissions */}
       <div className="grid" style={{ gridTemplateColumns: "1.05fr 1.4fr 1fr" }}>
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
-          <CardTitle title="Notifications" subtitle={"Last 24h · " + unread + " unread"} icon="bell" right={<button className="btn btn-ghost btn-sm">Mark all read</button>} />
+          <CardTitle title="Notifications" subtitle={"Last 24h · " + unread + " unread"} icon="bell" right={<button className="btn btn-ghost btn-sm" onClick={() => setRoute("notifications")}>View all</button>} />
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {D.notifications.slice(0, 5).map(n => (
               <div key={n.id} className="row-hover" style={{ padding: "8px 10px", borderRadius: 10, display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>

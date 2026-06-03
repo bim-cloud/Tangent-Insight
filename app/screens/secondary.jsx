@@ -37,10 +37,14 @@ window.AttendanceScreen = function AttendanceScreen() {
           ))}
         </div>
         <div className="vdiv" style={{ height: 22 }} />
-        <button className="btn btn-secondary btn-sm"><Icon name="calendar" size={12} /> {todayLabel}</button>
-        <button className="btn btn-secondary btn-sm"><Icon name="filter" size={12} /> All departments</button>
+        <button className="btn btn-secondary btn-sm" title="Showing today"><Icon name="calendar" size={12} /> {todayLabel}</button>
         <div style={{ flex: 1 }} />
-        <button className="btn btn-secondary btn-sm"><Icon name="download" size={12} /> Export</button>
+        <button className="btn btn-secondary btn-sm"
+                onClick={() => window.TI_UTIL.exportCsv("attendance-" + todayLabel.replace(/\s/g, "-"),
+                  D.attendance.map(a => ({ name: a.name, dept: a.dept, role: a.role, status: a.status,
+                    in_time: a.inTime, out_time: a.outTime, hours: a.hours, overtime: a.ot })))}>
+          <Icon name="download" size={12} /> Export
+        </button>
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: "2fr 1fr" }}>

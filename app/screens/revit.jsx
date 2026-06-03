@@ -53,14 +53,18 @@ window.RevitScreen = function RevitScreen({ selectedProject, setSelectedProject,
           <button className={filter === "delay" ? "on" : ""} onClick={() => setFilter("delay")}>Delayed</button>
         </div>
         <div className="vdiv" style={{ height: 22 }} />
-        <button className="btn btn-secondary btn-sm"><Icon name="sliders-horizontal" size={12} /> Filters</button>
-        <button className="btn btn-secondary btn-sm"><Icon name="arrow-up-down" size={12} /> Health</button>
         <div style={{ flex: 1 }} />
         <div className="seg">
           <button className={view === "grid" ? "on" : ""} onClick={() => setView("grid")}><Icon name="grid-3x3" size={11} /></button>
           <button className={view === "list" ? "on" : ""} onClick={() => setView("list")}><Icon name="list" size={11} /></button>
         </div>
-        <button className="btn btn-primary btn-sm"><Icon name="plus" size={12} /> Add project</button>
+        <button className="btn btn-secondary btn-sm"
+                onClick={() => window.TI_UTIL.exportCsv("revit-projects",
+                  D.projects.map(p => ({ project: p.code, active_users: p.activeUsers, total_users: p.totalUsers,
+                    worksets: p.worksets, open_views: p.openViews, warnings: p.warnings,
+                    linked_models: p.linkedModels, model_size_mb: p.modelSize, version: p.version })))}>
+          <Icon name="download" size={12} /> Export
+        </button>
       </div>
 
       {/* Split layout: grid + detail */}
@@ -242,8 +246,17 @@ function ProjectDetail({ p, onClose, setSelectedEmployee, setRoute, activity }) 
             </div>
           </div>
           <div className="center gap-2">
-            <button className="btn btn-ghost btn-icon" title="Refresh"><Icon name="refresh-cw" size={14} /></button>
-            <button className="btn btn-ghost btn-icon" title="Export"><Icon name="download" size={14} /></button>
+            <button className="btn btn-ghost btn-icon" title="Refresh"
+                    onClick={() => { if (window.TI_REFRESH) { window.TI_REFRESH(); window.TI_UTIL.toast("Refreshing live data…", "info"); } }}>
+              <Icon name="refresh-cw" size={14} />
+            </button>
+            <button className="btn btn-ghost btn-icon" title="Export projects"
+                    onClick={() => window.TI_UTIL.exportCsv("revit-projects",
+                      D.projects.map(p => ({ project: p.code, active_users: p.activeUsers, total_users: p.totalUsers,
+                        worksets: p.worksets, open_views: p.openViews, warnings: p.warnings,
+                        linked_models: p.linkedModels, model_size_mb: p.modelSize, version: p.version })))}>
+              <Icon name="download" size={14} />
+            </button>
             <button className="btn btn-ghost btn-icon" onClick={onClose}><Icon name="x" size={14} /></button>
           </div>
         </div>
@@ -301,7 +314,7 @@ function ProjectDetail({ p, onClose, setSelectedEmployee, setRoute, activity }) 
         <div>
           <div className="between" style={{ marginBottom: 8 }}>
             <span className="micro">Active team · {teamMembers.filter(m=>m.status!=="offline").length} online</span>
-            <button className="btn btn-ghost btn-sm">All members <Icon name="arrow-right" size={11} /></button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setRoute("employees")}>All members <Icon name="arrow-right" size={11} /></button>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {teamMembers.map(m => (

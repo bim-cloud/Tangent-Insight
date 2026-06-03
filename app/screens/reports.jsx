@@ -253,8 +253,19 @@ window.ReportsScreen = function ReportsScreen() {
               <Icon name="info" size={12} /> Report includes {D.people.length} employees · {D.people.reduce((a,p)=>a+p.hours,0).toFixed(1)}h today
             </div>
             <div className="center gap-2">
-              <button className="btn btn-secondary btn-sm"><Icon name="send" size={12} /> Email</button>
-              <button className="btn btn-secondary btn-sm"><Icon name="calendar-plus" size={12} /> Schedule</button>
+              <button className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        const totalH = D.people.reduce((a,p)=>a+p.hours,0).toFixed(1);
+                        const online = D.people.filter(p=>p.status!=="offline").length;
+                        const subject = encodeURIComponent("Tangent Insight — " + sel.title);
+                        const body = encodeURIComponent(
+                          sel.title + "\n" + new Date().toLocaleString("en-GB") + "\n\n" +
+                          "Staff tracked: " + D.people.length + "\nActive now: " + online +
+                          "\nTotal hours today: " + totalH + "h\n\n(Generated from Tangent Insight)");
+                        window.location.href = "mailto:?subject=" + subject + "&body=" + body;
+                      }}>
+                <Icon name="send" size={12} /> Email
+              </button>
               <button className="btn btn-primary btn-sm"
                       onClick={() => generateReport(sel, { rangeDays, deptF, projF, format }, D)}>
                 <Icon name="download" size={12} /> Generate {format}
@@ -264,31 +275,16 @@ window.ReportsScreen = function ReportsScreen() {
         </div>
       </div>
 
-      {/* Scheduled jobs */}
-      <div className="surface" style={{ padding: 0, borderRadius: 18, overflow: "hidden" }}>
-        <div className="between" style={{ padding: "12px 16px", borderBottom: "1px solid rgb(var(--hairline))" }}>
-          <CardTitle title="Scheduled reports" subtitle="5 automated jobs · 4 active" icon="calendar-clock" />
-          <button className="btn btn-secondary btn-sm"><Icon name="plus" size={11} /> Schedule new</button>
+      {/* Export history / honesty note — scheduling needs a backend cron we don't run */}
+      <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
+        <CardTitle title="Automated scheduling" subtitle="Not yet enabled" icon="calendar-clock" />
+        <div className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, padding: "4px 2px" }}>
+          Reports are generated and downloaded on demand using the controls above — pick a date range,
+          department, project, and format, then Generate. Scheduled email delivery (e.g. a weekly
+          attendance report to leadership) requires a server-side job runner, which isn't part of this
+          deployment yet. If you want it, it can be added as a Supabase Edge Function on a cron trigger.
+          For now, use <b>Email</b> to send a summary, or <b>Generate</b> to download the full dataset.
         </div>
-        <table className="table">
-          <thead>
-            <tr><th>Report</th><th>Schedule</th><th>Recipients</th><th>Format</th><th>Last run</th><th>Next run</th><th>Status</th><th></th></tr>
-          </thead>
-          <tbody>
-            {scheduled.map((s, i) => (
-              <tr key={i}>
-                <td style={{ fontWeight: 600 }}><div className="center gap-2"><Icon name="file-bar-chart" size={13} color="rgb(var(--accent))" /> {s.title}</div></td>
-                <td className="muted">{s.schedule}</td>
-                <td><AvatarStack users={D.people.slice(0, s.recipients).map(p => p.id)} size={18} max={4} /></td>
-                <td><span className="pill pill-neutral">{s.format}</span></td>
-                <td className="muted">{["2h ago","Mon","May 1","2m ago","Mar 31"][i]}</td>
-                <td className="muted">{["Today 18:00","Mon 09:00","Jun 1","On trigger","Jul 1"][i]}</td>
-                <td>{s.active ? <Pill tone="success" dot>Active</Pill> : <Pill tone="neutral">Paused</Pill>}</td>
-                <td><button className="btn btn-ghost btn-icon"><Icon name="more-horizontal" size={13} /></button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </PageShell>
   );

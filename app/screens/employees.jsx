@@ -63,7 +63,14 @@ window.EmployeesScreen = function EmployeesScreen({ selectedEmployee, setSelecte
           <button className={statusFilter === "offline" ? "on" : ""} onClick={() => setStatusFilter("offline")}>Offline</button>
         </div>
         <div style={{ flex: 1 }} />
-        <button className="btn btn-secondary btn-sm"><Icon name="download" size={12} /> Export CSV</button>
+        <button className="btn btn-secondary btn-sm"
+                onClick={() => window.TI_UTIL.exportCsv("employees",
+                  D.people.map(p => ({ name: p.name, email: p.email, dept: p.dept, role: p.role,
+                    discipline: p.discipline, status: p.status, project: p.project,
+                    hours_today: p.hours, overtime: p.ot, utilization_pct: p.utilization,
+                    machine: p.machine })))}>
+          <Icon name="download" size={12} /> Export CSV
+        </button>
       </div>
 
       {/* Split layout */}
@@ -201,8 +208,18 @@ function EmployeeDetail({ emp, onClose, activity }) {
             </div>
           </div>
           <div className="center gap-2">
-            <button className="btn btn-ghost btn-icon"><Icon name="message-square" size={14} /></button>
-            <button className="btn btn-ghost btn-icon"><Icon name="download" size={14} /></button>
+            <button className="btn btn-ghost btn-icon" title="Copy email"
+                    onClick={() => emp.email ? window.TI_UTIL.copyText(emp.email) : window.TI_UTIL.toast("No email on file", "warning")}>
+              <Icon name="message-square" size={14} />
+            </button>
+            <button className="btn btn-ghost btn-icon" title="Export this employee"
+                    onClick={() => window.TI_UTIL.exportCsv("employee-" + emp.id, [{
+                      name: emp.name, email: emp.email, dept: emp.dept, role: emp.role,
+                      discipline: emp.discipline, status: emp.status, project: emp.project,
+                      hours_today: emp.hours, overtime: emp.ot, utilization_pct: emp.utilization,
+                      focus_min: emp.focusMin, idle_min: emp.idleMin, machine: emp.machine }])}>
+              <Icon name="download" size={14} />
+            </button>
             <button className="btn btn-ghost btn-icon" onClick={onClose}><Icon name="x" size={14} /></button>
           </div>
         </div>

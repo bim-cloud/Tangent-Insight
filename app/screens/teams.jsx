@@ -184,8 +184,14 @@ function LiveMeetingCard({ m }) {
           </div>
         </div>
         <div className="center gap-2">
-          <button className="btn btn-secondary btn-sm"><Icon name="message-square" size={12} /> Chat</button>
-          <button className="btn btn-primary btn-sm"><Icon name="phone" size={12} /> Join</button>
+          <button className="btn btn-secondary btn-sm"
+                  onClick={() => { window.open("https://teams.microsoft.com/l/chat/0/0", "_blank"); }}>
+            <Icon name="message-square" size={12} /> Chat
+          </button>
+          <button className="btn btn-primary btn-sm"
+                  onClick={() => { window.open("https://teams.microsoft.com/l/meeting/new", "_blank"); }}>
+            <Icon name="phone" size={12} /> Open Teams
+          </button>
         </div>
       </div>
       <div className="between">

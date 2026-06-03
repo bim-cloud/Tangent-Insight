@@ -53,8 +53,17 @@ window.UserAnalyticsScreen = function UserAnalyticsScreen({ activity }) {
           ))}
         </div>
         <div style={{ flex: 1 }} />
-        <button className="btn btn-secondary btn-sm"><Icon name="message-square" size={12} /> Message</button>
-        <button className="btn btn-secondary btn-sm"><Icon name="download" size={12} /> Export profile</button>
+        <button className="btn btn-secondary btn-sm"
+                onClick={() => u.email ? window.TI_UTIL.copyText(u.email) : window.TI_UTIL.toast("No email on file", "warning")}>
+          <Icon name="message-square" size={12} /> Copy email
+        </button>
+        <button className="btn btn-secondary btn-sm"
+                onClick={() => window.TI_UTIL.exportCsv("profile-" + u.id, [{
+                  name: u.name, email: u.email, dept: u.dept, role: u.role, discipline: u.discipline,
+                  status: u.status, project: u.project, hours_today: u.hours, overtime: u.ot,
+                  utilization_pct: u.utilization, focus_min: u.focusMin, idle_min: u.idleMin }])}>
+          <Icon name="download" size={12} /> Export profile
+        </button>
       </div>
 
       {/* Hero — identity + productivity score */}
@@ -200,7 +209,11 @@ window.UserAnalyticsScreen = function UserAnalyticsScreen({ activity }) {
       <div className="grid" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
         <div className="surface" style={{ padding: "var(--pad-card)", borderRadius: 18 }}>
           <CardTitle title={`${u.name.split(" ")[0]}'s recent actions`} subtitle="All Revit, Teams, and system events captured by the local agent · validated server-side" icon="list-checks"
-                     right={<button className="btn btn-ghost btn-sm">Export <Icon name="download" size={11} /></button>} />
+                     right={<button className="btn btn-ghost btn-sm"
+                            onClick={() => window.TI_UTIL.exportCsv("user-activity-" + u.id,
+                              (activity || []).filter(a => a.user === u.id).map(a => ({
+                                time_min_ago: a.t, kind: a.kind, project: a.project, detail: a.detail })))}>
+                       Export <Icon name="download" size={11} /></button>} />
           <table className="table">
             <thead>
               <tr><th>Time</th><th>Action</th><th>Project</th><th>Details</th><th>Duration</th></tr>
@@ -336,7 +349,7 @@ function Stat3({ icon, label, value }) {
 function HourTimeline({ events, focusMinNow, idleMinNow }) {
   const hours = ["08","09","10","11","12","13","14","15","16","17","18","19"];
   const now = new Date();
-  const nowHour = now.getHours();   // local hour 0-23
+  const nowHour = now.getHours();
   // Bin events by hour-of-day
   const bins = hours.map(() => ({ revit: 0, teams: 0, idle: 0, other: 0, tracked: false }));
   let firstAt = null, lastAt = null;
@@ -348,18 +361,21 @@ function HourTimeline({ events, focusMinNow, idleMinNow }) {
     const h = dt.getHours() - 8;
     if (h < 0 || h > 11) return;
     bins[h].tracked = true;
-    if (e.kind === "teams") bins[h].teams += 10;       // ~10 min per teams event
+    if (e.kind === "teams") bins[h].teams += 10;
     else if (e.kind === "warning" || e.kind === "error") bins[h].other += 4;
-    else bins[h].revit += 4;                            // 4 min per Revit event
+    else bins[h].revit += 4;
   });
-  // Cap each bin at 60 min total; do NOT synthesize idle for empty hours
+  // Cap each bin at 60 min and reserve any leftover as 'idle' for hours that were
+  // tracked but didn't reach 60min of activity (meaning the agent saw the user
+  // but mouse/keyboard were idle for parts of that hour).
   bins.forEach(b => {
     const sum = b.revit + b.teams + b.other;
     if (sum > 60) { const k = 60 / sum; b.revit *= k; b.teams *= k; b.other *= k; }
+    if (b.tracked) {
+      b.idle = Math.max(0, 60 - (b.revit + b.teams + b.other));
+    }
   });
-  // Mark hours that haven't happened yet (after current local hour)
-  const futureFrom = nowHour - 8 + 1;   // first index that is in the future
-
+  const futureFrom = nowHour - 8 + 1;
   const colors = ["rgb(var(--accent))","rgb(var(--accent-2))","rgb(var(--warning))","rgb(var(--fg-faint))"];
   const labels = ["Revit","Teams","Idle","Other"];
   const fmt = (d) => d ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "—";

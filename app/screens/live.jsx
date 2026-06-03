@@ -60,7 +60,13 @@ window.LiveScreen = function LiveScreen({ activity, setRoute }) {
             <button className="btn btn-secondary btn-sm" onClick={() => setPaused(p => !p)}>
               <Icon name={paused ? "play" : "pause"} size={12} /> {paused ? "Resume" : "Pause"}
             </button>
-            <button className="btn btn-secondary btn-sm"><Icon name="download" size={12} /> Export</button>
+            <button className="btn btn-secondary btn-sm"
+                    onClick={() => window.TI_UTIL.exportCsv("live-activity",
+                      (activity || []).map(a => { const u = D.byId(a.user);
+                        return { time_min_ago: a.t, kind: a.kind, who: u ? u.name : (a.user || "—"),
+                                 project: a.project, detail: a.detail }; }))}>
+              <Icon name="download" size={12} /> Export
+            </button>
           </div>
         </div>
 
@@ -133,8 +139,10 @@ window.LiveScreen = function LiveScreen({ activity, setRoute }) {
           <div className="between" style={{ padding: "12px 14px", borderBottom: "1px solid rgb(var(--hairline))" }}>
             <CardTitle title="Activity stream" subtitle={`${filtered.length} events · auto-refresh ${paused ? "paused" : "every 5s"}`} icon="radio" live={!paused} />
             <div className="center gap-2">
-              <button className="btn btn-ghost btn-icon"><Icon name="filter" size={13} /></button>
-              <button className="btn btn-ghost btn-icon"><Icon name="more-horizontal" size={13} /></button>
+              <button className="btn btn-ghost btn-icon" title="Refresh feed"
+                      onClick={() => { if (window.TI_REFRESH) { window.TI_REFRESH(); window.TI_UTIL.toast("Refreshing…", "info"); } }}>
+                <Icon name="refresh-cw" size={13} />
+              </button>
             </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
