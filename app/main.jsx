@@ -171,7 +171,9 @@ function App({ authSession }) {
           route={route}
           openNotifications={() => setRoute("notifications")}
         />
-        {screen}
+        <div key={route} className="ti-page-enter">
+          {screen}
+        </div>
       </div>
 
       <window.TweaksPanel>

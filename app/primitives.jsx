@@ -186,15 +186,48 @@ window.Counter = function Counter({ value, duration = 0.9, format = (n) => Math.
 };
 
 /* ===== KPI Card ===== */
-window.KPICard = function KPICard({ k }) {
+window.KPICard = function KPICard({ k, onNavigate }) {
   const positive = k.trend === "up";
-  // For some KPIs (overtime, clashes), down is good — caller decides via deltaIsGood
   const isGood = k.key === "overtime" || k.key === "clashes" ? (k.delta < 0) : (k.delta > 0);
+  const [pressed, setPressed] = React.useState(false);
+  const [hover, setHover] = React.useState(false);
+
+  // KPI -> destination tab
+  const ROUTE = {
+    projects: "revit",     // Active Revit Projects -> Project Monitoring
+    online:   "live",      // Users Online Now -> Live Users
+    meeting:  "teams",     // In Teams Meetings -> Teams Activity
+    hours:    "analytics", // Active Work Hours -> Work Analytics
+    overtime: "reports",   // Overtime -> Overtime Analytics (Reports)
+    staff:    "employees", // Total Staff Tracked -> Employee Overview
+  };
+  const target = ROUTE[k.key];
+  const clickable = !!(target && onNavigate);
+
   return (
-    <div className="surface surface-hover" style={{ position: "relative", overflow: "hidden", padding: "var(--pad-card)", borderRadius: 18 }}>
+    <div
+      className="surface surface-hover kpi-card"
+      onClick={clickable ? () => onNavigate(target) : undefined}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => { setHover(false); setPressed(false); }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(target); } } : undefined}
+      style={{
+        position: "relative", overflow: "hidden", padding: "var(--pad-card)", borderRadius: 18,
+        cursor: clickable ? "pointer" : "default",
+        transform: pressed ? "translateY(0) scale(0.978)" : hover && clickable ? "translateY(-3px)" : "translateY(0)",
+        transition: "transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 320ms ease",
+        boxShadow: hover && clickable ? "0 14px 30px -12px rgb(0 0 0 / 0.22)" : undefined,
+        willChange: "transform",
+      }}
+    >
       <div style={{
         position: "absolute", top: -40, right: -40, height: 110, width: 110,
-        borderRadius: 9999, background: k.grad, opacity: 0.15, filter: "blur(28px)",
+        borderRadius: 9999, background: k.grad, opacity: hover && clickable ? 0.26 : 0.15,
+        filter: "blur(28px)", transition: "opacity 320ms ease",
       }} />
       <div style={{ position: "relative" }}>
         <div className="between" style={{ marginBottom: 10 }}>
@@ -202,6 +235,8 @@ window.KPICard = function KPICard({ k }) {
             display: "inline-flex", height: 32, width: 32, borderRadius: 10,
             alignItems: "center", justifyContent: "center", background: k.grad,
             color: "#fff", boxShadow: "0 4px 10px -2px rgb(0 0 0 / 0.12)",
+            transform: hover && clickable ? "scale(1.08) rotate(-3deg)" : "scale(1)",
+            transition: "transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1)",
           }}>
             <Icon name={k.icon} size={16} strokeWidth={2.2} />
           </div>
@@ -212,14 +247,16 @@ window.KPICard = function KPICard({ k }) {
         </div>
         <div className="between" style={{ marginTop: 4, gap: 6 }}>
           <div className="muted" style={{ fontSize: 11, lineHeight: 1.25, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.label}</div>
-          <div className="tabular" style={{
-            fontSize: 11, fontWeight: 600,
-            color: isGood ? "rgb(var(--success))" : "rgb(var(--danger))",
-            display: "inline-flex", alignItems: "center", gap: 2,
-          }}>
-            <Icon name={k.delta > 0 ? "arrow-up-right" : "arrow-down-right"} size={11} strokeWidth={2.5} />
-            {Math.abs(k.delta)}
-          </div>
+          {clickable && (
+            <div style={{
+              fontSize: 11, fontWeight: 600, color: "rgb(var(--accent))",
+              display: "inline-flex", alignItems: "center", gap: 2,
+              opacity: hover ? 1 : 0, transform: hover ? "translateX(0)" : "translateX(-4px)",
+              transition: "opacity 220ms ease, transform 220ms ease",
+            }}>
+              Open <Icon name="arrow-right" size={11} strokeWidth={2.5} />
+            </div>
+          )}
         </div>
       </div>
     </div>

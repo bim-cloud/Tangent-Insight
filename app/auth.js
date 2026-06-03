@@ -62,18 +62,31 @@
     emit();
   }
 
-  // Refresh proactively on load if we already have a session
-  function refreshIfNeeded() {
-    if (!session || !session.refresh_token) return Promise.resolve();
-    var now = Math.floor(Date.now() / 1000);
-    if (session.expires_at && session.expires_at - now > 60) return Promise.resolve();
+  // Refresh the access token. force=true ignores the expiry check.
+  function doRefresh() {
+    if (!session || !session.refresh_token) return Promise.resolve(null);
     return api("token?grant_type=refresh_token", { refresh_token: session.refresh_token })
-      .then(setSession).catch(function () { setSession(null); });
+      .then(function (r) { setSession(r); return session; })
+      .catch(function () { setSession(null); return null; });
   }
+  function refreshIfNeeded(force) {
+    if (!session || !session.refresh_token) return Promise.resolve(session);
+    var now = Math.floor(Date.now() / 1000);
+    if (!force && session.expires_at && session.expires_at - now > 120) return Promise.resolve(session);
+    return doRefresh();
+  }
+
+  // Periodic background refresh so a long-open tab never carries a stale token.
+  setInterval(function () { refreshIfNeeded(false); }, 60 * 1000);
 
   window.TI_AUTH = {
     getSession: function () { return session; },
     onChange: function (cb) { listeners.push(cb); return function () { listeners = listeners.filter(function (x) { return x !== cb; }); }; },
+    // Screens await this before any authenticated write so the token is fresh —
+    // fixes "JWT expired" on Save after the tab has idled.
+    getValidToken: function () {
+      return refreshIfNeeded(false).then(function (s) { return s ? s.access_token : null; });
+    },
     signInWithPassword: function (email, password) {
       return api("token?grant_type=password", { email: email, password: password })
         .then(function (r) { setSession(r); return {}; })
