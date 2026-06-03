@@ -191,6 +191,7 @@ window.KPICard = function KPICard({ k, onNavigate }) {
   const isGood = k.key === "overtime" || k.key === "clashes" ? (k.delta < 0) : (k.delta > 0);
   const [pressed, setPressed] = React.useState(false);
   const [hover, setHover] = React.useState(false);
+  const magRef = window.useMagnetic ? window.useMagnetic(0.18) : React.useRef(null);
 
   // KPI -> destination tab
   const ROUTE = {
@@ -206,6 +207,7 @@ window.KPICard = function KPICard({ k, onNavigate }) {
 
   return (
     <div
+      ref={magRef}
       className="surface surface-hover kpi-card"
       onClick={clickable ? () => onNavigate(target) : undefined}
       onMouseEnter={() => setHover(true)}

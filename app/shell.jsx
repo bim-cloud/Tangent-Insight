@@ -169,6 +169,9 @@ window.Topbar = function Topbar({ title, subtitle, theme, setTheme, onSearch, se
       {/* Agent health */}
       <AgentHealthChip />
 
+      {/* Motion mode (Cinematic / Balanced / Minimal) */}
+      {window.MotionToggle ? <window.MotionToggle /> : null}
+
       {/* Theme toggle */}
       <button className="btn btn-ghost btn-icon" title="Toggle theme"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
