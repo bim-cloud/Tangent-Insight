@@ -447,9 +447,17 @@ window.AdminScreen = function AdminScreen() {
   });
   const idTable = Object.values(byAutodeskId)
     .map(r => ({ ...r, users: Object.keys(r.users) }))
-    .sort((a, b) => (a.source === b.source ? 0 : a.source === "agent" ? -1 : 1)
-                    || b.users.length - a.users.length
-                    || b.machines.length - a.machines.length);
+    .sort((a, b) => {
+      // Primary: anything observed by the agent first, then directory-only
+      var srcDiff = (a.source === b.source ? 0 : a.source === "agent" ? -1 : 1);
+      if (srcDiff) return srcDiff;
+      // Secondary: most recently seen first
+      var aT = a.last_seen ? new Date(a.last_seen).getTime() : 0;
+      var bT = b.last_seen ? new Date(b.last_seen).getTime() : 0;
+      if (aT !== bT) return bT - aT;
+      // Tertiary: more shared accounts first (admin attention)
+      return b.users.length - a.users.length || b.machines.length - a.machines.length;
+    });
   const observedCount = idTable.filter(r => r.source === "agent").length;
 
   return (
@@ -657,10 +665,14 @@ window.SettingsScreen = function SettingsScreen() {
     if (!pwNew || pwNew.length < 8) { setPwStatus({ tone: "error", msg: "New password must be at least 8 characters." }); return; }
     setPwStatus({ tone: "loading", msg: "Updating…" });
     try {
+      const token = window.TI_AUTH && window.TI_AUTH.getValidToken
+        ? await window.TI_AUTH.getValidToken()
+        : session.access_token;
+      if (!token) { setPwStatus({ tone: "error", msg: "Your session expired. Please sign in again." }); return; }
       const cfg = window.TI_SUPABASE;
       const r = await fetch(cfg.url + "/auth/v1/user", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", apikey: cfg.anon, Authorization: "Bearer " + session.access_token },
+        headers: { "Content-Type": "application/json", apikey: cfg.anon, Authorization: "Bearer " + token },
         body: JSON.stringify({ password: pwNew }),
       });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.msg || j.error_description || "Update failed"); }
@@ -772,6 +784,14 @@ window.SettingsScreen = function SettingsScreen() {
   );
 };
 
+function nameFromEmail(email) {
+  if (!email) return "—";
+  const local = String(email).split("@")[0];
+  return local.split(/[._\-]+/).filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function ProfilePanel({ session, email, me }) {
   const ROLES = [
     "BIM Manager","Assistant BIM Manager","BIM Coordinator","BIM Modeler","BIM Detailer",
@@ -788,7 +808,9 @@ function ProfilePanel({ session, email, me }) {
   const [dept, setDept] = React.useState(me ? me.dept || "" : "");
   const [disc, setDisc] = React.useState(me ? me.discipline || "UNASSIGNED" : "UNASSIGNED");
   const [status, setStatus] = React.useState(null);
-  const dirty = me && (role !== me.role || dept !== me.dept || disc !== me.discipline);
+  const dirty = role !== ((me && me.role) || "") ||
+                dept !== ((me && me.dept) || "") ||
+                disc !== ((me && me.discipline) || "UNASSIGNED");
 
   React.useEffect(() => {
     if (!me) return;
@@ -796,16 +818,26 @@ function ProfilePanel({ session, email, me }) {
   }, [me && me.id]);
 
   async function save() {
-    if (!me || !session) return;
+    if (!session) return;
+    if (!me) {
+      setStatus({ tone: "error",
+        msg: "Your sign-in email '" + (email || "?") + "' doesn't match any row in the staff directory. " +
+             "An admin needs to add or correct your row in public.people (column 'email')." });
+      return;
+    }
     setStatus({ tone: "loading", msg: "Saving…" });
     try {
+      const token = window.TI_AUTH && window.TI_AUTH.getValidToken
+        ? await window.TI_AUTH.getValidToken()
+        : session.access_token;
+      if (!token) { setStatus({ tone: "error", msg: "Your session expired. Please sign in again." }); return; }
       const cfg = window.TI_SUPABASE;
       const r = await fetch(cfg.url + "/rest/v1/people?id=eq." + encodeURIComponent(me.id), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           apikey: cfg.anon,
-          Authorization: "Bearer " + session.access_token,
+          Authorization: "Bearer " + token,
           Prefer: "return=minimal",
         },
         body: JSON.stringify({ role, dept, discipline: disc }),
@@ -855,7 +887,7 @@ function ProfilePanel({ session, email, me }) {
           <div className="muted" style={{ fontSize: 10.5 }}>Avatar generated from name</div>
         </div>
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Full name" value={me ? me.name : "—"} readOnly />
+          <Field label="Full name" value={me ? me.name : nameFromEmail(email)} readOnly />
           <Field label="Email" value={email || "—"} readOnly />
           <SelectField label="Role"       value={role} options={ROLES}       onChange={setRole} />
           <SelectField label="Department" value={dept} options={DEPTS}       onChange={setDept} />
@@ -932,7 +964,7 @@ function Field({ label, value, readOnly, mono }) {
   return (
     <div>
       <div className="micro" style={{ marginBottom: 4 }}>{label}</div>
-      <input className={"input" + (mono ? " mono" : "")} defaultValue={value || ""} readOnly={readOnly} />
+      <input className={"input" + (mono ? " mono" : "")} value={value == null ? "" : value} readOnly={readOnly} onChange={() => {}} />
     </div>
   );
 }

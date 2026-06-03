@@ -82,7 +82,7 @@ window.DashboardScreen = function DashboardScreen({ activity, setRoute, setSelec
       <div className="grid" style={{
         gridTemplateColumns: dashLayout === "wide" ? "repeat(3, 1fr)" : "repeat(6, 1fr)",
       }}>
-        {kpis.map(k => <KPICard key={k.key} k={k} />)}
+        {kpis.map(k => <KPICard key={k.key} k={k} onNavigate={setRoute} />)}
       </div>
 
       {/* Row 1: Workforce + Project Health + Productivity */}

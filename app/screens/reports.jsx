@@ -4,6 +4,16 @@ window.ReportsScreen = function ReportsScreen() {
   const D = window.TI_DATA;
   const [selectedReport, setSelectedReport] = React.useState("weekly-attendance");
 
+  // Real working controls
+  const [rangeDays, setRangeDays] = React.useState(7);
+  const [deptF,     setDeptF]     = React.useState("all");
+  const [projF,     setProjF]     = React.useState("all");
+  const [format,    setFormat]    = React.useState("CSV");
+
+  // Build dept + project option lists from real data
+  const depts    = Array.from(new Set(D.people.map(p => p.dept || "Unassigned"))).sort();
+  const projects = Array.from(new Set(D.people.map(p => p.project).filter(p => p && p !== "—" && p !== "Multi"))).sort();
+
   const reports = [
     { id: "weekly-attendance", title: "Weekly Attendance Report",        cat: "Attendance",   icon: "calendar-check", desc: "Sign-in/out, breaks, overtime by employee", lastRun: "2h ago", format: "XLSX", rows: 16 },
     { id: "monthly-utilization", title: "Monthly Utilization Summary",   cat: "Workforce",    icon: "users",          desc: "Hours allocated vs capacity by department",  lastRun: "Yesterday", format: "PDF", rows: 5 },
@@ -152,12 +162,16 @@ window.ReportsScreen = function ReportsScreen() {
             </div>}
           />
 
-          {/* Param row */}
+          {/* Param row — all wired to state */}
           <div className="grid" style={{ gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
-            <ParamField label="Date range" value="May 12 → May 19" icon="calendar" />
-            <ParamField label="Department" value="All departments" icon="users" />
-            <ParamField label="Projects" value="All active" icon="folder-kanban" />
-            <ParamField label="Format" value={sel.format} icon="file-text" />
+            <SelectParam label="Date range" icon="calendar" value={String(rangeDays)} onChange={v => setRangeDays(Number(v))}
+              options={[{l:"Last 24 hours",v:"1"},{l:"Last 7 days",v:"7"},{l:"Last 30 days",v:"30"},{l:"Last 90 days",v:"90"}]} />
+            <SelectParam label="Department" icon="users" value={deptF} onChange={setDeptF}
+              options={[{l:"All departments",v:"all"}, ...depts.map(d => ({l:d, v:d}))]} />
+            <SelectParam label="Project" icon="folder-kanban" value={projF} onChange={setProjF}
+              options={[{l:"All active",v:"all"}, ...projects.map(p => ({l:p, v:p}))]} />
+            <SelectParam label="Format" icon="file-text" value={format} onChange={setFormat}
+              options={[{l:"CSV",v:"CSV"},{l:"JSON",v:"JSON"}]} />
           </div>
 
           {/* Preview area */}
@@ -241,7 +255,10 @@ window.ReportsScreen = function ReportsScreen() {
             <div className="center gap-2">
               <button className="btn btn-secondary btn-sm"><Icon name="send" size={12} /> Email</button>
               <button className="btn btn-secondary btn-sm"><Icon name="calendar-plus" size={12} /> Schedule</button>
-              <button className="btn btn-primary btn-sm"><Icon name="download" size={12} /> Generate {sel.format}</button>
+              <button className="btn btn-primary btn-sm"
+                      onClick={() => generateReport(sel, { rangeDays, deptF, projF, format }, D)}>
+                <Icon name="download" size={12} /> Generate {format}
+              </button>
             </div>
           </div>
         </div>
@@ -288,4 +305,103 @@ function ParamField({ label, value, icon }) {
       </div>
     </div>
   );
+}
+
+function SelectParam({ label, icon, value, onChange, options }) {
+  return (
+    <div className="surface-flat" style={{ padding: "8px 10px", borderRadius: 10 }}>
+      <div className="micro" style={{ fontSize: 9.5 }}>{label}</div>
+      <div className="center gap-2" style={{ marginTop: 2 }}>
+        <Icon name={icon} size={11} color="rgb(var(--accent))" />
+        <select value={value} onChange={e => onChange(e.target.value)}
+                style={{ flex: 1, fontSize: 12, fontWeight: 600, border: "none", background: "transparent",
+                         color: "rgb(var(--fg))", outline: "none", cursor: "pointer" }}>
+          {options.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+// Real report generation. Pulls live people + activity_events from Supabase,
+// applies the user's filters, and downloads a CSV or JSON file. The report
+// catalogue selects which columns/rows to include.
+async function generateReport(sel, opts, D) {
+  const { rangeDays, deptF, projF, format } = opts;
+  const since = new Date(Date.now() - rangeDays * 86400000).toISOString();
+
+  let rows = [];
+  let fields = [];
+  let nameBase = sel.id;
+
+  function deptOk(person)  { return deptF === "all" || person.dept === deptF; }
+  function projOk(project) { return projF === "all" || project === projF; }
+
+  if (sel.id === "weekly-attendance" || sel.id === "monthly-utilization" || sel.id === "overtime") {
+    const ppl = D.people.filter(deptOk);
+    rows = ppl.map(p => ({
+      employee: p.name, email: p.email, dept: p.dept, role: p.role, discipline: p.discipline,
+      status: p.status, hours_today: p.hours, overtime_today: p.ot, utilization_pct: p.utilization,
+      focus_min: p.focusMin, idle_min: p.idleMin, project_now: p.project,
+    }));
+    fields = ["employee","email","dept","role","discipline","status","hours_today","overtime_today","utilization_pct","focus_min","idle_min","project_now"];
+  } else if (sel.id === "project-health") {
+    rows = D.projects.filter(p => projOk(p.code)).map(p => ({
+      project: p.code, active_users: p.activeUsers, total_users: p.totalUsers,
+      health: p.health, stage: p.stage, version: p.version,
+    }));
+    fields = ["project","active_users","total_users","health","stage","version"];
+  } else {
+    // Everything else queries activity_events from the live archive
+    if (!window.TI_SUPABASE_REST) { alert("Live API not available."); return; }
+    let q = "select=*&order=occurred_at.desc&limit=5000&occurred_at=gte." + since;
+    let acts;
+    try { acts = await window.TI_SUPABASE_REST("activity_events", q); }
+    catch (e) { alert("Couldn't fetch activity: " + e); return; }
+    // Filter by kind family
+    const familyByReport = {
+      "revit-sessions": ["open","close","save","sync","workset"],
+      "clash-history":  ["clash","warning","error"],
+      "teams-usage":    ["teams"],
+      "audit":          ["login"],
+    };
+    const allowKinds = familyByReport[sel.id] || null;
+    const filtered = (acts || []).filter(a => {
+      if (allowKinds && !allowKinds.includes(a.kind)) return false;
+      if (projF !== "all" && a.project !== projF) return false;
+      if (deptF !== "all") {
+        const p = D.byId(a.user_id);
+        if (!p || p.dept !== deptF) return false;
+      }
+      return true;
+    });
+    rows = filtered.map(a => {
+      const p = a.user_id ? D.byId(a.user_id) : null;
+      return {
+        occurred_at: a.occurred_at, kind: a.kind,
+        employee: p ? p.name : "", email: p ? p.email : "",
+        project: a.project, detail: a.detail, source: a.source,
+      };
+    });
+    fields = ["occurred_at","kind","employee","email","project","detail","source"];
+  }
+
+  if (!rows.length) { alert("No data matches the selected filters."); return; }
+
+  const filename = nameBase + "-" + rangeDays + "d-" + new Date().toISOString().slice(0,10);
+  if (format === "JSON") {
+    download(filename + ".json", JSON.stringify(rows, null, 2), "application/json");
+  } else {
+    const esc = v => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+    const csv = [fields.join(","), ...rows.map(r => fields.map(f => esc(r[f])).join(","))].join("\n");
+    download(filename + ".csv", csv, "text/csv;charset=utf-8");
+  }
+}
+
+function download(filename, data, mime) {
+  const blob = new Blob([data], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
 }
